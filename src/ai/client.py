@@ -3,6 +3,8 @@
 import os
 from abc import ABC, abstractmethod
 from typing import Optional
+from urllib.parse import urlparse
+import httpx
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from anthropic import AsyncAnthropic
 from google import genai
@@ -140,9 +142,12 @@ class OpenAIClient(AIClient):
         base_url = config.base_url or self._DEFAULT_BASE_URLS.get(config.provider.value)
         if base_url:
             kwargs["base_url"] = base_url
+            if self._is_local_base_url(base_url):
+                kwargs["http_client"] = httpx.AsyncClient(trust_env=False)
 
         self.client = AsyncOpenAI(**kwargs)
         self.model = config.model
+        self.base_url = base_url
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
         self.provider = config.provider.value
@@ -227,6 +232,10 @@ class OpenAIClient(AIClient):
             request_kwargs["temperature"] = temperature
         if self.provider not in self._NO_RESPONSE_FORMAT:
             request_kwargs["response_format"] = {"type": "json_object"}
+        if self._should_disable_thinking():
+            extra_body = dict(request_kwargs.get("extra_body") or {})
+            extra_body["think"] = False
+            request_kwargs["extra_body"] = extra_body
         return await self.client.chat.completions.create(**request_kwargs)
 
     @staticmethod
@@ -236,6 +245,28 @@ class OpenAIClient(AIClient):
             "deprecated" in lowered
             or "not support" in lowered
             or "unsupported" in lowered
+        )
+
+    @staticmethod
+    def _is_local_base_url(base_url: str) -> bool:
+        hostname = urlparse(base_url).hostname
+        return hostname in {"localhost", "127.0.0.1", "::1"}
+
+    def _should_disable_thinking(self) -> bool:
+        """Disable Qwen3 thinking only for Horizon's local Ollama API calls."""
+        if "qwen3" not in self.model.lower():
+            return False
+        if self.config.enable_thinking:
+            return False
+        if self.provider not in {"openai", "ollama"}:
+            return False
+        if not self.base_url:
+            return False
+
+        parsed = urlparse(self.base_url)
+        return (
+            parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+            and parsed.port == 11434
         )
 
 

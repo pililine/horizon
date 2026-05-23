@@ -5,12 +5,33 @@ import re
 from typing import Optional
 
 
+def strip_thinking_content(text: str) -> str:
+    """Remove obvious Qwen thinking wrappers without touching normal content."""
+    if not text:
+        return text
+
+    cleaned = re.sub(
+        r"<think\b[^>]*>.*?</think\s*>",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(
+        r"^\s*Thinking\.\.\..*?(?:\.\.\.)?done thinking\.?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(r"</?think\b[^>]*>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def parse_json_response(response: str) -> Optional[dict]:
     """Try multiple strategies to extract a JSON object from an AI response.
 
     Returns the parsed dict, or None if all strategies fail.
     """
-    text = response.strip()
+    text = strip_thinking_content(response)
 
     # Strategy 1: direct parse
     try:

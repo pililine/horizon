@@ -19,6 +19,7 @@ from .client import AIClient
 from .prompts import (
     CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
     CONTENT_ENRICHMENT_SYSTEM, CONTENT_ENRICHMENT_USER,
+    BRIEF_ENRICHMENT_SYSTEM, BRIEF_ENRICHMENT_USER,
 )
 from .utils import parse_json_response
 from ..models import ContentItem
@@ -36,21 +37,37 @@ class ContentEnricher:
         concurrency = getattr(config, "enrichment_concurrency", 1)
         return max(concurrency, 1)
 
-    async def enrich_batch(self, items: List[ContentItem]) -> None:
+    async def enrich_batch(
+        self,
+        items: List[ContentItem],
+        mode: str = "full",
+        timeout_seconds: Optional[int] = None,
+    ) -> None:
         """Enrich items in-place with background knowledge.
 
         Args:
             items: Content items to enrich (modified in-place)
+            mode: "full" for web-grounded enrichment, "brief" for one short AI call
+            timeout_seconds: Optional per-item timeout
         """
+        if not items:
+            return
+
         concurrency = self._get_concurrency()
         semaphore = asyncio.Semaphore(concurrency)
 
         async def _process(item: ContentItem, progress_task) -> None:
             async with semaphore:
                 try:
-                    await self._enrich_item(item)
+                    coro = self._brief_enrich_item(item) if mode == "brief" else self._enrich_item(item)
+                    if timeout_seconds:
+                        await asyncio.wait_for(coro, timeout=timeout_seconds)
+                    else:
+                        await coro
                 except Exception as e:
                     print(f"Error enriching item {item.id}: {e}")
+                    item.metadata["enrichment_mode"] = "none"
+                    item.metadata["enrichment_error"] = str(e)
             progress.advance(progress_task)
 
         with Progress(
@@ -65,6 +82,43 @@ class ContentEnricher:
                 _process(item, task) for item in items
             ]
             await asyncio.gather(*coros)
+
+    async def _brief_enrich_item(self, item: ContentItem) -> None:
+        """Apply lightweight enrichment with a single short AI call."""
+        content_text = ""
+        comments_text = ""
+        if item.content:
+            if "--- Top Comments ---" in item.content:
+                main, comments_part = item.content.split("--- Top Comments ---", 1)
+                content_text = main.strip()[:1800]
+                comments_text = comments_part.strip()[:800]
+            else:
+                content_text = item.content[:1800]
+
+        user_prompt = BRIEF_ENRICHMENT_USER.format(
+            title=item.title,
+            url=str(item.url),
+            summary=item.ai_summary or item.title,
+            score=item.ai_score or 0,
+            reason=item.ai_reason or "",
+            tags=", ".join(item.ai_tags) if item.ai_tags else "",
+            content=content_text or item.ai_summary or item.title,
+            comments_section=f"\n**Community Comments:**\n{comments_text}" if comments_text else "",
+        )
+
+        response = await self.client.complete(
+            system=BRIEF_ENRICHMENT_SYSTEM,
+            user=user_prompt,
+            max_tokens=min(getattr(self.client, "max_tokens", 4096), 1600),
+        )
+        result = self._parse_json_response(response)
+        if result is None:
+            print(f"Warning: could not parse brief enrichment response for {item.id}, skipping enrichment")
+            item.metadata["enrichment_mode"] = "none"
+            return
+
+        self._apply_enrichment_result(item, result, available_urls={})
+        item.metadata["enrichment_mode"] = "brief"
 
     async def _web_search(self, query: str, max_results: int = 3) -> list:
         """Search the web for context via DuckDuckGo.
@@ -197,11 +251,23 @@ class ContentEnricher:
             print(f"Warning: could not parse enrichment response for {item.id}, skipping enrichment")
             return
 
-        # Combine structured sub-fields into per-language detailed_summary
+        self._apply_enrichment_result(item, result, available_urls)
+        item.metadata["enrichment_mode"] = "full"
+
+    @staticmethod
+    def _coerce_text(value) -> str:
+        return value.get("text") or str(value) if isinstance(value, dict) else str(value)
+
+    def _apply_enrichment_result(
+        self,
+        item: ContentItem,
+        result: dict,
+        available_urls: dict,
+    ) -> None:
+        """Store model enrichment output on item metadata."""
         for lang in ("en", "zh"):
             if result.get(f"title_{lang}"):
-                val = result[f"title_{lang}"]
-                item.metadata[f"title_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+                item.metadata[f"title_{lang}"] = self._coerce_text(result[f"title_{lang}"])
 
             parts = []
             for field in ("whats_new", "why_it_matters", "key_details"):
@@ -212,12 +278,10 @@ class ContentEnricher:
                 item.metadata[f"detailed_summary_{lang}"] = " ".join(parts)
 
             if result.get(f"background_{lang}"):
-                val = result[f"background_{lang}"]
-                item.metadata[f"background_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+                item.metadata[f"background_{lang}"] = self._coerce_text(result[f"background_{lang}"])
 
             if result.get(f"community_discussion_{lang}"):
-                val = result[f"community_discussion_{lang}"]
-                item.metadata[f"community_discussion_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+                item.metadata[f"community_discussion_{lang}"] = self._coerce_text(result[f"community_discussion_{lang}"])
 
         # Store citation sources — only URLs that actually came from our search results
         if result.get("sources") and available_urls:

@@ -117,7 +117,10 @@ def print_config_template():
   },
   "filtering": {
     "ai_score_threshold": 7.0,
-    "time_window_hours": 24
+    "time_window_hours": 24,
+    "min_items_per_report": 10,
+    "max_items_per_report": 15,
+    "semantic_dedupe_candidate_limit": 25
   }
 }
 

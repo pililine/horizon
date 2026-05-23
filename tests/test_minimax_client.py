@@ -55,6 +55,55 @@ class TestOpenAIClientInit:
         ))
         assert "dashscope.aliyuncs.com" in str(client.client.base_url)
 
+    def test_ai_config_accepts_local_openai_base_url(self):
+        config = _make_config(
+            provider=AIProvider.OPENAI,
+            model="qwen2.5:14b",
+            base_url="http://localhost:11434/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+        )
+
+        assert config.base_url == "http://localhost:11434/v1"
+        assert config.api_key_env == "LOCAL_LLM_API_KEY"
+
+    def test_openai_provider_uses_local_base_url_and_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_LLM_API_KEY", "local")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            model="qwen2.5:14b",
+            base_url="http://localhost:11434/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+        ))
+
+        assert client.provider == "openai"
+        assert client.model == "qwen2.5:14b"
+        assert str(client.client.base_url) == "http://localhost:11434/v1/"
+        assert client.client.api_key == "local"
+        assert client.client._client.trust_env is False
+
+    def test_local_loopback_base_url_disables_httpx_env_trust(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_LLM_API_KEY", "local")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            model="local-model",
+            base_url="http://127.0.0.1:1234/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+        ))
+
+        assert str(client.client.base_url) == "http://127.0.0.1:1234/v1/"
+        assert client.client._client.trust_env is False
+
+    def test_openai_provider_without_base_url_keeps_sdk_default(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            api_key_env="OPENAI_API_KEY",
+            base_url=None,
+        ))
+
+        assert "api.openai.com/v1" in str(client.client.base_url)
+        assert client.client._client.trust_env is True
+
 
 class TestOpenAIClientComplete:
     def test_basic_completion(self, monkeypatch):
@@ -119,6 +168,77 @@ class TestOpenAIClientComplete:
 
         call_kwargs = mock_create.call_args[1]
         assert call_kwargs.get("response_format") == {"type": "json_object"}
+
+    def test_qwen3_local_ollama_disables_thinking_by_default(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_LLM_API_KEY", "local")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            model="qwen3:14b",
+            base_url="http://localhost:11434/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+        ))
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"score": 8}'
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+
+        with patch.object(
+            client.client.chat.completions, "create", new_callable=AsyncMock
+        ) as mock_create:
+            mock_create.return_value = mock_response
+            asyncio.run(client.complete(system="test", user="hello"))
+
+        call_kwargs = mock_create.call_args[1]
+        assert call_kwargs["extra_body"] == {"think": False}
+
+    def test_qwen3_enable_thinking_does_not_force_think_false(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_LLM_API_KEY", "local")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            model="qwen3:14b",
+            base_url="http://localhost:11434/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+            enable_thinking=True,
+        ))
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"score": 8}'
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+
+        with patch.object(
+            client.client.chat.completions, "create", new_callable=AsyncMock
+        ) as mock_create:
+            mock_create.return_value = mock_response
+            asyncio.run(client.complete(system="test", user="hello"))
+
+        assert "extra_body" not in mock_create.call_args[1]
+
+    def test_qwen25_local_ollama_does_not_force_think_false(self, monkeypatch):
+        monkeypatch.setenv("LOCAL_LLM_API_KEY", "local")
+        client = OpenAIClient(_make_config(
+            provider=AIProvider.OPENAI,
+            model="qwen2.5:14b",
+            base_url="http://localhost:11434/v1",
+            api_key_env="LOCAL_LLM_API_KEY",
+        ))
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"score": 8}'
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 5
+
+        with patch.object(
+            client.client.chat.completions, "create", new_callable=AsyncMock
+        ) as mock_create:
+            mock_create.return_value = mock_response
+            asyncio.run(client.complete(system="test", user="hello"))
+
+        assert "extra_body" not in mock_create.call_args[1]
 
 
 class TestTemperatureFallback:

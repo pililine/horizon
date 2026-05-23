@@ -1,18 +1,24 @@
 {
   "version": "1.0",
   "ai": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "base_url": "https://api.deepseek.com",
-    "api_key_env": "OPENAI_API_KEY",
+    "provider": "openai",
+    "model": "qwen2.5:14b",
+    "base_url": "http://localhost:11434/v1",
+    "api_key_env": "LOCAL_LLM_API_KEY",
     "temperature": 0.3,
-    "max_tokens": 8192,
+    "max_tokens": 4096,
+    "enable_thinking": false,
+    "enrichment_mode": "tiered",
+    "enrichment_full_threshold": 8.0,
+    "enrichment_brief_threshold": 7.0,
+    "enrichment_max_full_items": 3,
+    "enrichment_timeout_seconds": 120,
     "languages": [
       "zh",
       "en"
     ],
-    "analysis_concurrency": 5,
-    "enrichment_concurrency": 5
+    "analysis_concurrency": 1,
+    "enrichment_concurrency": 1
   },
   "sources": {
     "github": [
@@ -61,12 +67,12 @@
       {
         "name": "LWN.net",
         "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
-        "enabled": true,
+        "enabled": false,
         "category": "linux-kernel"
       }
     ],
     "reddit": {
-      "enabled": true,
+      "enabled": false,
       "subreddits": [
         {
           "subreddit": "MachineLearning",
@@ -100,11 +106,14 @@
     }
   },
   "filtering": {
-    "ai_score_threshold": 8.0,
-    "time_window_hours": 24
+    "ai_score_threshold": 7.0,
+    "time_window_hours": 24,
+    "min_items_per_report": 10,
+    "max_items_per_report": 15,
+    "semantic_dedupe_candidate_limit": 25
   },
   "webhook": {
-    "enabled": true,
+    "enabled": false,
     "url_env": "HORIZON_WEBHOOK_URL",
     "delivery": "summary_and_items",
     "overview_position": "last",

@@ -5,7 +5,9 @@ TOPIC_DEDUP_SYSTEM = """You are a news deduplication assistant. Identify groups 
 Rules:
 - Group items ONLY if they report on the identical event (same product release, same incident, same announcement)
 - Items about the same product but different events are NOT duplicates ("Gemma 4 released" vs "Gemma 4 jailbroken")
-- Err on the side of keeping items separate when unsure"""
+- Err on the side of keeping items separate when unsure
+- Do not think step by step, include reasoning, or output <think> tags
+- Return only final JSON"""
 
 TOPIC_DEDUP_USER = """The following news items have already been sorted by importance score (descending). Identify which items are duplicates of each other.
 
@@ -57,6 +59,7 @@ Consider:
 - Relevance to software engineering, AI/ML, and systems research
 - Community discussion quality: insightful comments, diverse viewpoints, and debates increase value
 - Engagement signals: high upvotes/favorites with substantive discussion indicate community-validated importance
+- Do not think step by step, include reasoning, or output <think> tags. Return only final JSON.
 """
 
 CONTENT_ANALYSIS_USER = """Analyze the following content and provide a JSON response with:
@@ -85,7 +88,8 @@ CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a re
 Given a news item, return 1-3 search queries for concepts that need explanation.
 Focus on: specific technologies, protocols, algorithms, tools, or projects that are not widely known.
 Do NOT return queries for well-known things (e.g. "Python", "Linux", "Google").
-If the news is self-explanatory, return an empty list."""
+If the news is self-explanatory, return an empty list.
+Do not think step by step, include reasoning, or output <think> tags. Return only final JSON."""
 
 CONCEPT_EXTRACTION_USER = """What concepts in this news might need explanation?
 
@@ -135,6 +139,7 @@ Guidelines:
 - Use the web search results to ensure accuracy, especially for recent projects, tools, or events
 - If the news is self-explanatory and needs no background, return an empty string for both background fields
 - For **sources**: pick 1-3 URLs from the Web Search Results that you actually relied on for the background fields. Only use URLs that appear verbatim in the search results above — do not invent or modify URLs.
+- Do not think step by step. Do not include reasoning or <think> tags. 不要输出思考过程，不要输出 <think> 标签，只输出最终 JSON。
 """
 
 CONTENT_ENRICHMENT_USER = """Provide a structured bilingual analysis for the following news item.
@@ -169,4 +174,44 @@ Respond with valid JSON only. Each _en field must be in English; each _zh field 
   "community_discussion_en": "<1-3 sentences in English, or empty string>",
   "community_discussion_zh": "<用中文写1-3句话，或空字符串>",
   "sources": ["<url from search results>", "..."]
+}}"""
+
+BRIEF_ENRICHMENT_SYSTEM = """You are a concise bilingual news editor.
+
+Create a lightweight structured summary using only the provided item content.
+Do not search, speculate, think step by step, include reasoning, or output <think> tags.
+Return only final JSON. 不要输出思考过程，不要输出 <think> 标签，只输出最终 JSON。
+"""
+
+BRIEF_ENRICHMENT_USER = """Create a brief bilingual enrichment for this news item.
+
+**News Item:**
+- Title: {title}
+- URL: {url}
+- One-line summary: {summary}
+- Score: {score}/10
+- Reason: {reason}
+- Tags: {tags}
+
+**Content:**
+{content}
+{comments_section}
+
+Use short fields. Background should be 1-2 sentences and only mention facts supported by the item content. If there is not enough context, use an empty string for background/community_discussion. Return an empty sources list.
+
+Respond with valid JSON only:
+{{
+  "title_en": "<short headline in English, ≤15 words>",
+  "title_zh": "<用中文写一个简短标题，不超过15个词>",
+  "whats_new_en": "<one short sentence in English>",
+  "whats_new_zh": "<用中文写一句话>",
+  "why_it_matters_en": "<one short sentence in English>",
+  "why_it_matters_zh": "<用中文写一句话>",
+  "key_details_en": "<one short sentence in English, or empty string>",
+  "key_details_zh": "<用中文写一句话，或空字符串>",
+  "background_en": "<1-2 sentences in English, or empty string>",
+  "background_zh": "<用中文写1-2句话，或空字符串>",
+  "community_discussion_en": "<one short sentence in English, or empty string>",
+  "community_discussion_zh": "<用中文写一句话，或空字符串>",
+  "sources": []
 }}"""

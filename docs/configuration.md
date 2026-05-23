@@ -37,6 +37,94 @@ Configure which AI model scores and summarizes your content.
 }
 ```
 
+**Local LLM / Qwen 14B**:
+
+You do not need a GPT API key if you run a local OpenAI-compatible server such as Ollama, LM Studio, vLLM, or llama.cpp server. The OpenAI Python SDK still requires a non-empty API key, so put a placeholder in `.env`:
+
+```env
+LOCAL_LLM_API_KEY=local
+```
+
+Ollama example:
+
+```bash
+ollama pull qwen2.5:14b
+ollama run qwen2.5:14b
+```
+
+Configure `data/config.json`:
+
+```json
+{
+  "ai": {
+    "provider": "openai",
+    "model": "qwen2.5:14b",
+    "base_url": "http://localhost:11434/v1",
+    "api_key_env": "LOCAL_LLM_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 4096,
+    "enable_thinking": false,
+    "enrichment_mode": "tiered",
+    "enrichment_full_threshold": 8.0,
+    "enrichment_brief_threshold": 7.0,
+    "enrichment_max_full_items": 3,
+    "enrichment_timeout_seconds": 120
+  }
+}
+```
+
+For `qwen3:*` models on local Ollama, Horizon sends `think=false` by default
+when `enable_thinking` is `false`. This disables Qwen3 thinking only for
+Horizon's OpenAI-compatible API requests; it does not change global Ollama
+behavior or affect other projects.
+
+Enrichment modes:
+
+- `full`: use the original web-grounded enrichment for every final item.
+- `brief`: use one shorter AI call per final item, without concept extraction or web search.
+- `none`: skip AI enrichment and render the report from scoring metadata.
+- `tiered`: full-enrich only the highest-scoring items, brief-enrich medium/high items, and skip lower-score filler items.
+
+Recommended local daily commands:
+
+```bash
+./run-local.sh       # default: 12 hours
+./run-local.sh 24    # 24-hour daily catch-up
+./run-fast.sh        # default: 6-hour smoke test
+.venv/bin/horizon --hours 12
+```
+
+Keep `qwen2.5:14b` as the daily default. `qwen3:14b` can be used for quality
+or overnight experiments, but local enrichment is slower. `qwen2.5:7b` is useful
+for smoke tests when speed matters more than summary quality.
+
+For quiet local daily runs, optional integrations may stay disabled until
+configured: Reddit can return 403 in some environments, LWN full-text requires
+`LWN_KEY`, and webhook delivery requires `HORIZON_WEBHOOK_URL`.
+
+LM Studio example:
+
+1. Load your Qwen 14B model in LM Studio.
+2. Start the Local Server.
+3. Use `http://localhost:1234/v1` as `base_url`.
+
+```json
+{
+  "ai": {
+    "provider": "openai",
+    "model": "local-model",
+    "base_url": "http://localhost:1234/v1",
+    "api_key_env": "LOCAL_LLM_API_KEY"
+  }
+}
+```
+
+Then run:
+
+```bash
+.venv/bin/horizon --hours 48
+```
+
 **Azure OpenAI**:
 
 ```json

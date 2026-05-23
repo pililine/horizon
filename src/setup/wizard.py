@@ -276,6 +276,9 @@ def build_config(
     filtering = FilteringConfig(
         ai_score_threshold=7.0,
         time_window_hours=24,
+        min_items_per_report=10,
+        max_items_per_report=15,
+        semantic_dedupe_candidate_limit=25,
     )
 
     return Config(
@@ -427,7 +430,8 @@ def main():
         f"[green]✓ Configuration saved to {path}[/green]\n\n"
         f"  AI:      {ai_config.provider.value} / {ai_config.model}\n"
         f"  Sources: {_count_sources(config)} total\n"
-        f"  Threshold: {config.filtering.ai_score_threshold}\n\n"
+        f"  Threshold: {config.filtering.ai_score_threshold} (ranking only)\n"
+        f"  Per report: {config.filtering.min_items_per_report}–{config.filtering.max_items_per_report} items\n\n"
         f"Run [bold cyan]horizon[/bold cyan] to start aggregating!",
         title="Setup Complete",
         border_style="green",

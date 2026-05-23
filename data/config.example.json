@@ -7,6 +7,12 @@
     "temperature": 0.3,
     "max_tokens": 4096,
     "throttle_sec": 0,
+    "enable_thinking": false,
+    "enrichment_mode": "tiered",
+    "enrichment_full_threshold": 8.0,
+    "enrichment_brief_threshold": 7.0,
+    "enrichment_max_full_items": 3,
+    "enrichment_timeout_seconds": 120,
     "analysis_concurrency": 1,
     "enrichment_concurrency": 1
   },
@@ -55,7 +61,7 @@
       }
     ],
     "reddit": {
-      "enabled": true,
+      "enabled": false,
       "subreddits": [
         {
           "subreddit": "MachineLearning",
@@ -110,8 +116,11 @@
     }
   },
   "filtering": {
-    "ai_score_threshold": 6.0,
-    "time_window_hours": 24
+    "ai_score_threshold": 7.0,
+    "time_window_hours": 24,
+    "min_items_per_report": 10,
+    "max_items_per_report": 15,
+    "semantic_dedupe_candidate_limit": 25
   },
   "webhook": {
     "enabled": false,

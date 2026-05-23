@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Literal
 from pydantic import BaseModel, HttpUrl, Field, field_validator
 
 
@@ -65,6 +65,12 @@ class AIConfig(BaseModel):
     throttle_sec: float = 0.0
     analysis_concurrency: int = 1
     enrichment_concurrency: int = 1
+    enable_thinking: bool = False
+    enrichment_mode: Literal["full", "brief", "none", "tiered"] = "tiered"
+    enrichment_full_threshold: float = 8.0
+    enrichment_brief_threshold: float = 7.0
+    enrichment_max_full_items: int = 3
+    enrichment_timeout_seconds: Optional[int] = 120
     languages: List[str] = Field(default_factory=lambda: ["en"])
     # Azure OpenAI specific; required when provider == AZURE
     azure_endpoint_env: Optional[str] = None
@@ -310,10 +316,19 @@ class EmailConfig(BaseModel):
 
 
 class FilteringConfig(BaseModel):
-    """Content filtering configuration."""
+    """Content filtering configuration.
+
+    `ai_score_threshold` ranks items and counts how many are "high-scoring"; it
+    is no longer a hard cutoff. Each report emits between `min_items_per_report`
+    and `max_items_per_report` items (or every candidate when fewer than the
+    minimum are available).
+    """
 
     ai_score_threshold: float = 7.0
     time_window_hours: int = 24
+    min_items_per_report: int = 10
+    max_items_per_report: int = 15
+    semantic_dedupe_candidate_limit: int = 25
 
 
 class Config(BaseModel):

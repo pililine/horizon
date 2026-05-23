@@ -256,6 +256,96 @@ cp data/config.example.json data/config.json  # 自定义信息源
 
 `data/config.json` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
 
+#### 使用本地 LLM / Qwen 14B
+
+如果你没有 OpenAI / GPT API key，也可以使用本地 OpenAI-compatible 服务，例如 Ollama、LM Studio、vLLM 或 llama.cpp server。OpenAI Python SDK 仍然要求 `api_key` 非空，但很多本地服务不会真正校验它，因此 `.env` 里可以使用占位值：
+
+```env
+LOCAL_LLM_API_KEY=local
+```
+
+Ollama 示例：
+
+```bash
+ollama pull qwen2.5:14b
+ollama run qwen2.5:14b
+```
+
+对应的 `data/config.json`：
+
+```jsonc
+{
+  "ai": {
+    "provider": "openai",
+    "model": "qwen2.5:14b",
+    "base_url": "http://localhost:11434/v1",
+    "api_key_env": "LOCAL_LLM_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 4096,
+    "enable_thinking": false,
+    "enrichment_mode": "tiered",
+    "enrichment_full_threshold": 8.0,
+    "enrichment_brief_threshold": 7.0,
+    "enrichment_max_full_items": 3,
+    "enrichment_timeout_seconds": 120
+  }
+}
+```
+
+如果使用本地 Ollama 的 `qwen3:*` 模型，`enable_thinking: false` 会让
+Horizon 的 OpenAI-compatible API 请求附带 `think=false`，只关闭本项目请求
+里的 Qwen3 思考模式，不会修改全局 Ollama，也不会影响其他项目。
+
+`enrichment_mode` 可用于控制二次补充背景的成本：
+
+- `full`：所有最终条目都走原完整补充背景流程。
+- `brief`：每条只做一次较短 AI 调用，不做概念抽取和网页搜索。
+- `none`：跳过 AI 补充背景，直接用评分阶段已有摘要渲染日报。
+- `tiered`：高分条目完整补充，中高分条目简短补充，低分补位条目跳过。
+
+#### 本地日常运行推荐
+
+当前推荐的本地日常默认组合是 `qwen2.5:14b` + `enrichment_mode: tiered`。项目根目录提供了两个脚本：
+
+```bash
+./run-local.sh       # 默认抓取最近 12 小时
+./run-local.sh 24    # 抓取最近 24 小时
+./run-fast.sh        # 默认抓取最近 6 小时，用于快速冒烟测试
+```
+
+也可以直接运行：
+
+```bash
+.venv/bin/horizon --hours 12
+```
+
+`qwen3:14b` 可以作为质量评估或夜间任务模型，但本地 enrichment 仍偏慢，因此不作为默认模型。`qwen2.5:7b` 可用于更快的冒烟测试，但摘要质量通常低于 14B。
+
+Reddit、LWN 和 Webhook 都是可选集成。若没有 Reddit 可访问性、没有 `LWN_KEY` 或没有 `HORIZON_WEBHOOK_URL`，建议在本地日常配置中保持它们关闭，避免无意义的 403 或缺少 URL 提示；需要时再把对应 `enabled` 改为 `true` 并补齐凭据。
+
+LM Studio 示例：
+
+1. 在 LM Studio 中加载你的 Qwen 14B 模型。
+2. 启动 Local Server。
+3. 将 `base_url` 配置为 `http://localhost:1234/v1`。
+
+```jsonc
+{
+  "ai": {
+    "provider": "openai",
+    "model": "local-model",
+    "base_url": "http://localhost:1234/v1",
+    "api_key_env": "LOCAL_LLM_API_KEY"
+  }
+}
+```
+
+配置完成后运行：
+
+```bash
+.venv/bin/horizon --hours 48
+```
+
 完整配置参考请查看[配置指南](docs/configuration.md)。
 
 ### 3. 运行

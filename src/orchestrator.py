@@ -74,44 +74,27 @@ class HorizonOrchestrator:
             all_items = await self.fetch_all_sources(since)
             self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
 
-            if not all_items:
-                self.console.print("[yellow]No new content found. Exiting.[/yellow]")
-                return
-
-            # 3. Merge cross-source duplicates (same URL from different sources)
-            merged_items = self.merge_cross_source_duplicates(all_items)
-            if len(merged_items) < len(all_items):
+            if all_items:
+                # 3. Merge cross-source duplicates (same URL from different sources)
+                merged_items = self.merge_cross_source_duplicates(all_items)
+                removed = len(all_items) - len(merged_items)
                 self.console.print(
-                    f"🔗 Merged {len(all_items) - len(merged_items)} cross-source duplicates "
-                    f"→ {len(merged_items)} unique items\n"
+                    f"🔗 Rule/url dedupe: {len(all_items)} → {len(merged_items)} "
+                    f"items ({removed} removed)\n"
                 )
 
-            # 4. Analyze with AI
-            analyzed_items = await self._analyze_content(merged_items)
-            self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
-
-            # 5. Filter by score threshold
-            threshold = self.config.filtering.ai_score_threshold
-            important_items = [
-                item for item in analyzed_items
-                if item.ai_score and item.ai_score >= threshold
-            ]
-            important_items.sort(key=lambda x: x.ai_score or 0, reverse=True)
-
-            self.console.print(
-                f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
-            )
-
-            # 5.5 Semantic deduplication: drop items covering the same topic
-            deduped_items = await self.merge_topic_duplicates(important_items)
-            if len(deduped_items) < len(important_items):
+                # 4-6. Score, semantically dedupe, and select the final output set.
+                # AI score is used only for ranking and to count high-scoring items;
+                # it is never a hard cutoff. See _curate_output_items for the rules.
+                important_items, curation = await self._curate_output_items(merged_items)
+            else:
                 self.console.print(
-                    f"🧹 Removed {len(important_items) - len(deduped_items)} topic duplicates "
-                    f"→ {len(deduped_items)} unique items\n"
+                    "[yellow]No scraped candidates found; generating empty summaries.[/yellow]\n"
                 )
-            important_items = deduped_items
+                important_items = []
+                curation = {"insufficient": False}
 
-            # 5.6 Optional second-stage Twitter reply expansion + targeted re-analysis
+            # 6.1 Optional second-stage Twitter reply expansion + targeted re-analysis
             await self._expand_twitter_discussion(important_items)
 
             # Show per-sub-source selection breakdown
@@ -119,18 +102,26 @@ class HorizonOrchestrator:
             for item in important_items:
                 key = f"{item.source_type.value}/{self._sub_source_label(item)}"
                 selected_counts[key] += 1
-            for source_key, count in sorted(selected_counts.items()):
-                self.console.print(f"      • {source_key}: {count}")
-            self.console.print("")
+            if selected_counts:
+                for source_key, count in sorted(selected_counts.items()):
+                    self.console.print(f"      • {source_key}: {count}")
+                self.console.print("")
 
-            # 6. Search related stories + enrich with background knowledge (2nd AI pass)
+            # 6.2 Enrich ONLY the final output items (2nd AI pass). Keeping this
+            # after selection avoids spending local inference on dropped items.
             await self._enrich_important_items(important_items)
 
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
-                summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
+                summary = await summarizer.generate_summary(
+                    important_items,
+                    today,
+                    len(all_items),
+                    language=lang,
+                    insufficient_candidates=curation["insufficient"],
+                )
 
                 # Save to data/summaries/
                 summary_path = self.storage.save_daily_summary(today, summary, language=lang)
@@ -517,20 +508,105 @@ class HorizonOrchestrator:
     async def _enrich_important_items(self, items: List[ContentItem]) -> None:
         """Enrich items with background knowledge (2nd AI pass).
 
-        For each item that passed the score threshold, call AI to generate
-        background knowledge based on the item's actual content.
+        Enrichment mode is configurable so local LLM runs can avoid spending
+        long background-generation calls on lower-priority filler items.
 
         Args:
             items: Important items to enrich (modified in-place)
         """
         if not items:
+            self.console.print("📚 Enrichment skipped: 0 final output items\n")
             return
 
-        self.console.print("📚 Enriching with background knowledge...")
+        ai_config = self.config.ai
+        mode = ai_config.enrichment_mode
+        timeout = ai_config.enrichment_timeout_seconds
+        self.console.print(
+            f"📚 Enrichment mode: {mode} "
+            f"(timeout {timeout}s, full≥{ai_config.enrichment_full_threshold}, "
+            f"brief≥{ai_config.enrichment_brief_threshold}, "
+            f"max_full={ai_config.enrichment_max_full_items})"
+        )
+
+        if mode == "none":
+            for item in items:
+                item.metadata["enrichment_mode"] = "none"
+            self.console.print(
+                f"📚 Enrichment skipped by config: {len(items)} final output items\n"
+            )
+            self.console.print(
+                "   full_enrichment_count=0, brief_enrichment_count=0, "
+                f"skipped_enrichment_count={len(items)}\n"
+            )
+            return
+
         ai_client = create_ai_client(self.config.ai)
         enricher = ContentEnricher(ai_client)
-        await enricher.enrich_batch(items)
-        self.console.print(f"   Enriched {len(items)} items\n")
+
+        if mode == "full":
+            self.console.print(
+                f"📚 Enriching {len(items)} final output items with full background knowledge..."
+            )
+            await enricher.enrich_batch(items, mode="full", timeout_seconds=timeout)
+            self.console.print(
+                f"   full_enrichment_count={len(items)}, brief_enrichment_count=0, "
+                "skipped_enrichment_count=0\n"
+            )
+            return
+
+        if mode == "brief":
+            self.console.print(
+                f"📚 Brief-enriching {len(items)} final output items..."
+            )
+            await enricher.enrich_batch(items, mode="brief", timeout_seconds=timeout)
+            self.console.print(
+                f"   full_enrichment_count=0, brief_enrichment_count={len(items)}, "
+                "skipped_enrichment_count=0\n"
+            )
+            return
+
+        full_items, brief_items, skipped_items = self._split_enrichment_tiers(items)
+        for item in skipped_items:
+            item.metadata["enrichment_mode"] = "none"
+
+        self.console.print(
+            f"📚 Tiered enrichment: full={len(full_items)}, brief={len(brief_items)}, "
+            f"skipped={len(skipped_items)}\n"
+        )
+        if full_items:
+            await enricher.enrich_batch(full_items, mode="full", timeout_seconds=timeout)
+        if brief_items:
+            await enricher.enrich_batch(brief_items, mode="brief", timeout_seconds=timeout)
+
+        self.console.print(
+            f"   full_enrichment_count={len(full_items)}, "
+            f"brief_enrichment_count={len(brief_items)}, "
+            f"skipped_enrichment_count={len(skipped_items)}\n"
+        )
+
+    def _split_enrichment_tiers(
+        self, items: List[ContentItem]
+    ) -> tuple[List[ContentItem], List[ContentItem], List[ContentItem]]:
+        """Split final output items into full, brief, and skipped enrichment tiers."""
+        ai_config = self.config.ai
+        ranked = sorted(items, key=lambda item: item.ai_score or 0, reverse=True)
+        full_items: List[ContentItem] = []
+        brief_items: List[ContentItem] = []
+        skipped_items: List[ContentItem] = []
+
+        for item in ranked:
+            score = item.ai_score or 0
+            if (
+                score >= ai_config.enrichment_full_threshold
+                and len(full_items) < ai_config.enrichment_max_full_items
+            ):
+                full_items.append(item)
+            elif score >= ai_config.enrichment_brief_threshold:
+                brief_items.append(item)
+            else:
+                skipped_items.append(item)
+
+        return full_items, brief_items, skipped_items
 
     async def _analyze_content(self, items: List[ContentItem]) -> List[ContentItem]:
         """Analyze content items with AI.
@@ -547,6 +623,118 @@ class HorizonOrchestrator:
         analyzer = ContentAnalyzer(ai_client)
 
         return await analyzer.analyze_batch(items)
+
+    @staticmethod
+    def _select_output_items(
+        candidates: List[ContentItem],
+        *,
+        threshold: float,
+        min_items: int,
+        max_items: int,
+    ) -> tuple[List[ContentItem], int]:
+        """Pick the final output set by score rank.
+
+        Score ranks items and counts high-scoring ones; it never hard-filters.
+
+            high_score_count = items with ai_score >= threshold
+            output_count = min(max_items, max(min_items, high_score_count))
+            output_count = min(output_count, len(candidates))
+
+        So we emit at least `min_items` when enough candidates exist, expand up
+        to `max_items` when many items score high, and emit every candidate when
+        fewer than `min_items` are available. Returns (output_items, high_score_count).
+        """
+        ranked = sorted(candidates, key=lambda x: x.ai_score or 0, reverse=True)
+        high_score_count = sum(
+            1 for it in ranked if it.ai_score is not None and it.ai_score >= threshold
+        )
+        output_count = min(max_items, max(min_items, high_score_count))
+        output_count = min(output_count, len(ranked))
+        return ranked[:output_count], high_score_count
+
+    async def _curate_output_items(
+        self, merged_items: List[ContentItem]
+    ) -> tuple[List[ContentItem], Dict[str, int | bool]]:
+        """Score, dedupe, and select the items that go into the report.
+
+        Pipeline: AI score -> rank by score -> take a bounded candidate pool ->
+        semantic dedupe -> select top N (min/max). Score is never a hard cutoff,
+        so an empty report is produced only when there are zero candidates.
+
+        Returns (output_items, stats) where stats carries the counts logged below
+        plus an `insufficient` flag (True when fewer candidates than the minimum
+        output size were available).
+        """
+        filtering = self.config.filtering
+        threshold = filtering.ai_score_threshold
+        min_items = filtering.min_items_per_report
+        max_items = filtering.max_items_per_report
+        candidate_limit = filtering.semantic_dedupe_candidate_limit
+        self.console.print(
+            f"⚙️  Selection config: threshold={threshold}, "
+            f"min_items={min_items}, max_items={max_items}, "
+            f"semantic_dedupe_candidate_limit={candidate_limit}\n"
+        )
+
+        # 4. Analyze with AI (every item is scored)
+        scored_items = await self._analyze_content(merged_items)
+        high_score_total = sum(
+            1 for it in scored_items if it.ai_score is not None and it.ai_score >= threshold
+        )
+        self.console.print(
+            f"🤖 Scored {len(scored_items)} items "
+            f"({high_score_total} scored ≥ {threshold})\n"
+        )
+
+        # 5. Rank by score, then take a bounded pool for semantic dedup so we
+        # never send an unbounded prompt to a slow local model.
+        ranked_items = sorted(scored_items, key=lambda x: x.ai_score or 0, reverse=True)
+        candidate_pool = ranked_items[:candidate_limit]
+        self.console.print(
+            f"🎯 Semantic-dedup candidate pool: {len(candidate_pool)} "
+            f"(limit {candidate_limit})\n"
+        )
+
+        # 5.5 Semantic deduplication on the candidate pool
+        deduped_items = await self.merge_topic_duplicates(candidate_pool)
+        self.console.print(f"🧹 Semantic dedupe: {len(candidate_pool)} → {len(deduped_items)} candidates\n")
+        if len(deduped_items) < len(candidate_pool):
+            self.console.print(
+                f"🧹 Removed {len(candidate_pool) - len(deduped_items)} topic duplicates "
+                f"→ {len(deduped_items)} unique candidates\n"
+            )
+
+        # 6. Select the final output set (score ranks, never hard-filters)
+        output_items, high_score_count = self._select_output_items(
+            deduped_items,
+            threshold=threshold,
+            min_items=min_items,
+            max_items=max_items,
+        )
+        insufficient = 0 < len(deduped_items) < min_items
+
+        self.console.print(
+            f"📊 Output: {len(output_items)} items selected "
+            f"(high-score {high_score_count}, candidates {len(deduped_items)}, "
+            f"min {min_items}/max {max_items})\n"
+        )
+        if insufficient:
+            self.console.print(
+                "[yellow]⚠️  Fewer candidates than the minimum output size; "
+                "emitting all available candidates.[/yellow]\n"
+            )
+
+        stats: Dict[str, int | bool] = {
+            "scored_count": len(scored_items),
+            "high_score_count": high_score_count,
+            "candidate_pool_count": len(candidate_pool),
+            "deduped_count": len(deduped_items),
+            "output_count": len(output_items),
+            "min_items": min_items,
+            "max_items": max_items,
+            "insufficient": insufficient,
+        }
+        return output_items, stats
 
     async def _generate_summary(
         self,

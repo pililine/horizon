@@ -4,6 +4,7 @@ import re
 from typing import List, Dict
 
 from ..models import ContentItem
+from .utils import strip_thinking_content
 
 
 _CJK = r"[\u4e00-\u9fff\u3400-\u4dbf]"
@@ -17,6 +18,15 @@ def _pangu(text: str) -> str:
     return text
 
 
+def _field_label(label: str, language: str) -> str:
+    colon = "：" if language == "zh" else ":"
+    return f"**{label}{colon}**"
+
+
+def _clean_text(value) -> str:
+    return strip_thinking_content(str(value or ""))
+
+
 LABELS = {
     "en": {
         "header": "Horizon Daily",
@@ -24,16 +34,18 @@ LABELS = {
         "background": "Background",
         "discussion": "Discussion",
         "references": "References",
+        "none": "No references",
         "tags": "Tags",
+        "empty_header": "Fetched {total} items, but no candidates were available.",
+        "insufficient_note": (
+            "Note: fewer candidates than the minimum output size were available, "
+            "so every available candidate is shown below."
+        ),
         "empty_body": (
-            "No significant developments today. This might indicate:\n"
-            "- A quiet day in your tracked sources\n"
-            "- The AI score threshold is too high\n"
-            "- Your information sources need expansion\n\n"
-            "Consider:\n"
-            "1. Lowering the `ai_score_threshold` in config.json\n"
-            "2. Adding more diverse information sources\n"
-            "3. Checking if the AI model is working correctly\n"
+            "No candidates were available in the selected time window. This usually means:\n"
+            "- Your tracked sources had no new content in the window\n"
+            "- A wider time window may surface more (try a larger --hours value)\n"
+            "- Worth checking that your sources and AI model are reachable\n"
         ),
     },
     "zh": {
@@ -42,16 +54,15 @@ LABELS = {
         "background": "背景",
         "discussion": "社区讨论",
         "references": "参考链接",
+        "none": "无",
         "tags": "标签",
+        "empty_header": "已抓取 {total} 条内容，但没有任何候选。",
+        "insufficient_note": "说明：本次候选少于最低输出数量，已输出全部候选。",
         "empty_body": (
-            "今日暂无重要动态，可能原因：\n"
-            "- 今天关注的信息源较平静\n"
-            "- AI 评分阈值设置过高\n"
-            "- 信息源种类有待扩充\n\n"
-            "建议：\n"
-            "1. 在 config.json 中降低 `ai_score_threshold`\n"
-            "2. 添加更多多样化的信息源\n"
-            "3. 检查 AI 模型是否正常工作\n"
+            "在所选时间窗口内没有任何候选内容，通常说明：\n"
+            "- 关注的信息源在该时间窗口内暂无新内容\n"
+            "- 可尝试更大的时间窗口（增大 --hours）\n"
+            "- 也可顺便确认信息源与 AI 模型是否正常可达\n"
         ),
     },
 }
@@ -69,16 +80,19 @@ class DailySummarizer:
         date: str,
         total_fetched: int,
         language: str = "en",
+        insufficient_candidates: bool = False,
     ) -> str:
         """Generate daily summary in Markdown format.
 
         Items are rendered in score-descending order (already sorted by orchestrator).
 
         Args:
-            items: High-scoring content items (already enriched)
+            items: Selected content items (already enriched)
             date: Date string (YYYY-MM-DD)
-            total_fetched: Total number of items fetched before filtering
+            total_fetched: Total number of items fetched before selection
             language: Output language, either "en" or "zh"
+            insufficient_candidates: True when fewer candidates than the minimum
+                output size were available, so all of them are shown
 
         Returns:
             str: Markdown formatted summary
@@ -91,18 +105,20 @@ class DailySummarizer:
         header = (
             f"# {labels['header']} - {date}\n\n"
             f"> From {total_fetched} items, {len(items)} important content pieces were selected\n\n"
-            "---\n\n"
         )
+        if insufficient_candidates:
+            header += f"> {labels['insufficient_note']}\n\n"
+        header += "---\n\n"
 
         # TOC
         toc_entries = []
         for i, item in enumerate(items):
             _t = item.metadata.get(f"title_{language}") or item.title
-            t = str(_t).replace("[", "(").replace("]", ")")
+            t = _clean_text(_t).replace("[", "(").replace("]", ")")
             if language == "zh":
                 t = _pangu(t)
             score = item.ai_score or "?"
-            toc_entries.append(f"{i + 1}. [{t}](#item-{i + 1}) \u2b50\ufe0f {score}/10")
+            toc_entries.append(f"{i + 1}. [{t}]({item.url}) \u2b50\ufe0f {score}/10")
         toc = "\n".join(toc_entries) + "\n\n---\n\n"
 
         parts = [self._format_item(item, labels, language, i + 1) for i, item in enumerate(items)]
@@ -136,7 +152,7 @@ class DailySummarizer:
 
         entries = []
         for i, item in enumerate(items, start=1):
-            title = str(item.metadata.get(f"title_{language}") or item.title).replace("[", "(").replace("]", ")")
+            title = _clean_text(item.metadata.get(f"title_{language}") or item.title).replace("[", "(").replace("]", ")")
             if language == "zh":
                 title = _pangu(title)
             score = item.ai_score or "?"
@@ -159,19 +175,19 @@ class DailySummarizer:
     def _format_item(self, item: ContentItem, labels: dict, language: str, index: int) -> str:
         """Format a single ContentItem into Markdown."""
         _title = item.metadata.get(f"title_{language}") or item.title
-        title = str(_title).replace("[", "(").replace("]", ")")
+        title = _clean_text(_title).replace("[", "(").replace("]", ")")
         url = str(item.url)
         score = item.ai_score or "?"
         meta = item.metadata
 
-        summary = (
+        summary = _clean_text(
             meta.get(f"detailed_summary_{language}")
             or meta.get("detailed_summary")
             or item.ai_summary
             or ""
         )
-        background = meta.get(f"background_{language}") or meta.get("background") or ""
-        discussion = (
+        background = _clean_text(meta.get(f"background_{language}") or meta.get("background") or "")
+        discussion = _clean_text(
             meta.get(f"community_discussion_{language}")
             or meta.get("community_discussion")
             or ""
@@ -204,34 +220,37 @@ class DailySummarizer:
                 source_line += f' · [{labels["discussion"]}]({discussion_url})'
 
         lines = [
-            f'<a id="item-{index}"></a>',
-            f"## [{title}]({url}) \u2b50\ufe0f {score}/10",  # ⭐️
+            f"## \U0001f310 [{title}]({url}) \u2b50\ufe0f {score}/10",
             "",
             summary,
             "",
-            source_line,
+            f"{_field_label(labels['source'], language)} {source_line}",
         ]
 
         if background:
             lines.append("")
-            lines.append(f"**{labels['background']}**: {background}")
+            lines.append(f"{_field_label(labels['background'], language)} {background}")
 
         sources = meta.get("sources") or []
+        lines.append("")
         if sources:
-            items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
-            lines += [
-                "",
-                f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
-            ]
+            lines.append(_field_label(labels["references"], language))
+            for source in sources:
+                source_title = _clean_text(source.get("title") or source.get("url") or "")
+                source_url = str(source.get("url") or "").strip()
+                if source_title and source_url:
+                    lines.append(f"- [{source_title}]({source_url})")
+        else:
+            lines.append(f"{_field_label(labels['references'], language)} {labels['none']}")
 
         if discussion:
             lines.append("")
-            lines.append(f"**{labels['discussion']}**: {discussion}")
+            lines.append(f"{_field_label(labels['discussion'], language)} {discussion}")
 
         if item.ai_tags:
-            tags_str = ", ".join([f"`#{t}`" for t in item.ai_tags])
+            tags_str = ", ".join([f"#{t}" for t in item.ai_tags])
             lines.append("")
-            lines.append(f"**{labels['tags']}**: {tags_str}")
+            lines.append(f"{_field_label(labels['tags'], language)} {tags_str}")
 
         lines.append("")
         lines.append("---")
@@ -239,9 +258,9 @@ class DailySummarizer:
         return "\n".join(lines) + "\n\n"
 
     def _generate_empty_summary(self, date: str, total_fetched: int, labels: dict) -> str:
-        """Generate summary when no high-scoring items were found."""
+        """Generate summary when there were zero candidates."""
         return (
             f"# {labels['header']} - {date}\n\n"
-            f"> Analyzed {total_fetched} items, but none met the importance threshold.\n\n"
+            f"> {labels['empty_header'].format(total=total_fetched)}\n\n"
             + labels["empty_body"]
         )
