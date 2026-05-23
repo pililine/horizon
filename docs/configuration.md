@@ -102,6 +102,11 @@ For quiet local daily runs, optional integrations may stay disabled until
 configured: Reddit can return 403 in some environments, LWN full-text requires
 `LWN_KEY`, and webhook delivery requires `HORIZON_WEBHOOK_URL`.
 
+The local daily RSS set is intentionally small and high-signal: Simon Willison,
+OpenAI News, Google DeepMind Blog, Hugging Face Blog, GitHub Blog, and GitHub
+Trending. Add more feeds gradually so low-quality filler does not crowd out the
+daily report.
+
 LM Studio example:
 
 1. Load your Qwen 14B model in LM Studio.
