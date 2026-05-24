@@ -22,6 +22,18 @@ English reports are exported too:
 
 The script also updates `latest.md` and copies GitHub Pages post files into `posts/`.
 
+The launchd environment is smaller than an interactive terminal environment.
+The export script therefore loads the project `.env` automatically, checks the
+local Ollama OpenAI-compatible endpoint, verifies that `qwen2.5:14b` is
+available, and refuses to copy Markdown files whose modification time is older
+than the current run. This prevents a failed scheduled run from re-exporting
+stale reports.
+
+The script also checks that the iCloud output directories are writable before
+starting Horizon, and exports files through a temporary file plus atomic rename.
+If macOS blocks launchd from writing to iCloud Drive, the script fails before
+spending local LLM time.
+
 ## Manual Runs
 
 Generate a morning report:
@@ -82,6 +94,19 @@ View logs:
 ```bash
 tail -f logs/horizon-icloud.out.log
 tail -f logs/horizon-icloud.err.log
+```
+
+Each run also writes a timestamped log:
+
+```bash
+ls -lt logs/horizon-icloud-*.log
+tail -f logs/horizon-icloud-YYYYMMDD-HHMMSS.log
+```
+
+Before installing or after changing paths, run a full manual test:
+
+```bash
+./scripts/run-and-export-icloud.sh 12 morning
 ```
 
 Notes:
