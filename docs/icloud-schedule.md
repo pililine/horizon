@@ -36,8 +36,23 @@ spending local LLM time.
 
 If copying a report or writing `latest.md` fails with `Operation not permitted`,
 the export exits non-zero and does not print `iCloud export completed`. Check
-macOS Privacy & Security settings, especially Full Disk Access / iCloud Drive
-access for Terminal, iTerm, or the process used by launchd.
+macOS Privacy & Security settings:
+
+- System Settings → Privacy & Security → Files and Folders → grant Terminal / iTerm access to iCloud Drive
+- System Settings → Privacy & Security → Full Disk Access → add Terminal / iTerm if Files and Folders alone is not enough
+- Confirm iCloud Drive is enabled in System Settings → Apple Account → iCloud → iCloud Drive
+- For launchd-triggered runs, the process running the plist may need the same access; granting Terminal usually covers it
+
+Manual write permission test:
+
+```bash
+ICLOUD_DIR="/Users/chenxin/Library/Mobile Documents/com~apple~CloudDocs/1、iCloud work/AI（iCloud）/ai-news-radar"
+echo test > "$ICLOUD_DIR/permission-test.txt"
+cat "$ICLOUD_DIR/permission-test.txt"
+rm "$ICLOUD_DIR/permission-test.txt"
+```
+
+If the `echo` step fails with `Operation not permitted`, the iCloud directory is not writable from the current process and the launchd job will fail at the preflight check before running Horizon.
 
 ## Manual Runs
 
@@ -92,6 +107,12 @@ Unload and remove:
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.horizon.daily.icloud.plist
 rm ~/Library/LaunchAgents/com.horizon.daily.icloud.plist
+```
+
+Trigger a run manually without waiting for the schedule:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.horizon.daily.icloud
 ```
 
 View logs:
