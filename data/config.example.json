@@ -90,6 +90,17 @@
         "priority": 10
       },
       {
+        "name": "Microsoft AI Blog",
+        "url": "https://blogs.microsoft.com/ai/feed/",
+        "enabled": true,
+        "category": "enterprise-ai",
+        "source_quality": "medium",
+        "source_weight": 0.0,
+        "topics": ["enterprise-ai", "ai-products", "developer"],
+        "priority": 6,
+        "notes": "Official Microsoft AI feed; useful for ecosystem coverage, but product/brand mix should not receive ranking boost"
+      },
+      {
         "name": "Hugging Face Blog",
         "url": "https://huggingface.co/blog/feed.xml",
         "enabled": true,
