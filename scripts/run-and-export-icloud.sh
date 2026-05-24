@@ -26,13 +26,16 @@ if [[ "$SLOT" != "morning" && "$SLOT" != "evening" ]]; then
 fi
 
 ICLOUD_DIR="${HORIZON_ICLOUD_DIR:-/Users/chenxin/Library/Mobile Documents/com~apple~CloudDocs/1、iCloud work/AI（iCloud）/ai-news-radar}"
-POSTS_DIR="$ICLOUD_DIR/posts"
 RUN_LOG="$PROJECT_DIR/logs/horizon-icloud-$RUN_STAMP.log"
-REPORT_DATE="$(date '+%F')"
-ZH_TARGET="$ICLOUD_DIR/$REPORT_DATE-$SLOT-zh.md"
-EN_TARGET="$ICLOUD_DIR/$REPORT_DATE-$SLOT-en.md"
+RUN_DATE="$(date '+%F')"
+RUN_HHMM="$(date '+%H%M')"
+RUN_HHMMSS="$(date '+%H%M%S')"
+DAILY_DIR="$ICLOUD_DIR/daily/$RUN_DATE"
+POSTS_DIR="$ICLOUD_DIR/posts/$RUN_DATE"
+UPDATE_LATEST="${HORIZON_UPDATE_LATEST:-0}"
+EXPORT_POSTS="${HORIZON_EXPORT_POSTS:-0}"
 
-mkdir -p "$ICLOUD_DIR" "$POSTS_DIR" "$PROJECT_DIR/logs"
+mkdir -p "$ICLOUD_DIR" "$DAILY_DIR" "$PROJECT_DIR/logs"
 touch "$RUN_LOG"
 exec > >(tee -a "$RUN_LOG") 2>&1
 
@@ -86,51 +89,55 @@ extract_log_value() {
   grep -E "$pattern" "$RUN_LOG" | tail -n 1 || true
 }
 
-check_writable_dir() {
+check_append_writable_dir() {
   local dir="$1"
   local label="$2"
-  local probe="$dir/.horizon-write-test-$RUN_STAMP"
-  local probe_next="$probe.next"
+  local probe="$dir/.horizon-write-test-$RUN_STAMP-$$"
 
   if ! printf 'horizon write test\n' > "$probe"; then
     echo "ERROR: Failed to write permission test file in $dir" >&2
     echo "Please check macOS iCloud permissions / Full Disk Access." >&2
     exit 1
   fi
-  if ! mv "$probe" "$probe_next"; then
-    rm -f "$probe" "$probe_next"
-    echo "ERROR: Failed to rename permission test file in $dir" >&2
-    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
-    exit 1
+  if ! rm -f "$probe"; then
+    echo "WARNING: Failed to remove permission test file in $dir: $probe" >&2
+    echo "Append-only export can continue, but you may want to clean it up manually." >&2
   fi
-  if ! rm -f "$probe_next"; then
-    echo "ERROR: Failed to remove permission test file in $dir" >&2
-    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
-    exit 1
-  fi
-  echo "$label is writable"
+  echo "$label accepts new files"
 }
 
-copy_atomic() {
+unique_path() {
+  local dir="$1"
+  local stem="$2"
+  local ext="$3"
+  local fallback_stem="$4"
+  local candidate="$dir/$stem$ext"
+  local index=1
+
+  if [[ ! -e "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  candidate="$dir/$fallback_stem$ext"
+  while [[ -e "$candidate" ]]; do
+    candidate="$dir/$fallback_stem-$index$ext"
+    index=$((index + 1))
+  done
+
+  printf '%s\n' "$candidate"
+}
+
+copy_append_only() {
   local source="$1"
   local target="$2"
-  local target_dir
-  local target_base
-  local tmp
 
-  target_dir="$(dirname "$target")"
-  target_base="$(basename "$target")"
-  tmp="$target_dir/.${target_base}.tmp-$RUN_STAMP"
-
-  if ! cp "$source" "$tmp"; then
-    rm -f "$tmp"
-    echo "ERROR: Failed to copy $source to temporary export file $tmp" >&2
-    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+  if [[ -e "$target" ]]; then
+    echo "ERROR: Refusing to overwrite existing iCloud export file: $target" >&2
     exit 1
   fi
-  if ! mv -f "$tmp" "$target"; then
-    rm -f "$tmp"
-    echo "ERROR: Failed to move temporary export file to $target" >&2
+  if ! cp "$source" "$target"; then
+    echo "ERROR: Failed to copy $source to export file $target" >&2
     echo "Please check macOS iCloud permissions / Full Disk Access." >&2
     exit 1
   fi
@@ -146,16 +153,17 @@ write_latest_index() {
     echo "- Last generated at: $GENERATED_AT"
     echo "- Slot: $SLOT"
     echo "- Hours: $HOURS"
-    echo "- Chinese: ./$ZH_BASENAME"
-    echo "- English: ./$EN_BASENAME"
+    echo "- Chinese: $ZH_RELATIVE"
+    echo "- English: $EN_RELATIVE"
     echo "- Source run log: $RUN_LOG"
     echo
     echo "## Recent Files"
-    if ls "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md >/dev/null 2>&1; then
-      ls -t "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md 2>/dev/null \
+    if [[ -d "$ICLOUD_DIR/daily" ]] && find "$ICLOUD_DIR/daily" -type f \( -name '*-zh.md' -o -name '*-en.md' \) -print -quit 2>/dev/null | grep -q .; then
+      find "$ICLOUD_DIR/daily" -type f \( -name '*-zh.md' -o -name '*-en.md' \) -print 2>/dev/null \
+        | sort -r \
         | head -n 10 \
         | while IFS= read -r recent_file; do
-            echo "- ./$(basename "$recent_file")"
+            echo "- ${recent_file#$ICLOUD_DIR/}"
           done
     else
       echo "- No exported reports yet"
@@ -182,11 +190,19 @@ echo "Project path: $PROJECT_DIR"
 echo "Hours: $HOURS"
 echo "Slot: $SLOT"
 echo "iCloud dir: $ICLOUD_DIR"
+echo "Daily dir: $DAILY_DIR"
 echo "Run log: $RUN_LOG"
+echo "Update latest.md: $UPDATE_LATEST"
+echo "Export posts: $EXPORT_POSTS"
 
 echo "Checking iCloud export directory writability..."
-check_writable_dir "$ICLOUD_DIR" "iCloud dir"
-check_writable_dir "$POSTS_DIR" "iCloud posts dir"
+mkdir -p "$ICLOUD_DIR" "$DAILY_DIR"
+check_append_writable_dir "$ICLOUD_DIR" "iCloud dir"
+check_append_writable_dir "$DAILY_DIR" "Daily export dir"
+if [[ "$EXPORT_POSTS" == "1" ]]; then
+  mkdir -p "$POSTS_DIR"
+  check_append_writable_dir "$POSTS_DIR" "Posts export dir"
+fi
 
 if [[ -n "${LOCAL_LLM_API_KEY:-}" ]]; then
   echo "LOCAL_LLM_API_KEY is set"
@@ -239,31 +255,47 @@ latest_file() {
 
 ZH_SUMMARY="$(latest_file "data/summaries/*-zh.md")"
 EN_SUMMARY="$(latest_file "data/summaries/*-en.md")"
-ZH_POST="$(latest_file "docs/_posts/*-summary-zh.md")"
-EN_POST="$(latest_file "docs/_posts/*-summary-en.md")"
 
 require_recent_file "$ZH_SUMMARY" "Chinese summary"
 require_recent_file "$EN_SUMMARY" "English summary"
-require_recent_file "$ZH_POST" "Chinese post"
-require_recent_file "$EN_POST" "English post"
+
+ZH_TARGET="$(unique_path "$DAILY_DIR" "$RUN_DATE-$RUN_HHMM-$SLOT-zh" ".md" "$RUN_DATE-$RUN_HHMMSS-$SLOT-zh")"
+EN_TARGET="$(unique_path "$DAILY_DIR" "$RUN_DATE-$RUN_HHMM-$SLOT-en" ".md" "$RUN_DATE-$RUN_HHMMSS-$SLOT-en")"
 
 echo "Copying fresh Markdown files to iCloud..."
-copy_atomic "$ZH_SUMMARY" "$ZH_TARGET"
-copy_atomic "$EN_SUMMARY" "$EN_TARGET"
-copy_atomic "$ZH_POST" "$POSTS_DIR/$(basename "$ZH_POST")"
-copy_atomic "$EN_POST" "$POSTS_DIR/$(basename "$EN_POST")"
+copy_append_only "$ZH_SUMMARY" "$ZH_TARGET"
+copy_append_only "$EN_SUMMARY" "$EN_TARGET"
+
+COPIED_POSTS="skipped"
+if [[ "$EXPORT_POSTS" == "1" ]]; then
+  ZH_POST="$(latest_file "docs/_posts/*-summary-zh.md")"
+  EN_POST="$(latest_file "docs/_posts/*-summary-en.md")"
+  require_recent_file "$ZH_POST" "Chinese post"
+  require_recent_file "$EN_POST" "English post"
+
+  ZH_POST_TARGET="$(unique_path "$POSTS_DIR" "${RUN_DATE}-${RUN_HHMM}-summary-zh" ".md" "${RUN_DATE}-${RUN_HHMMSS}-summary-zh")"
+  EN_POST_TARGET="$(unique_path "$POSTS_DIR" "${RUN_DATE}-${RUN_HHMM}-summary-en" ".md" "${RUN_DATE}-${RUN_HHMMSS}-summary-en")"
+  copy_append_only "$ZH_POST" "$ZH_POST_TARGET"
+  copy_append_only "$EN_POST" "$EN_POST_TARGET"
+  COPIED_POSTS="$POSTS_DIR"
+fi
 
 LATEST_INDEX="$ICLOUD_DIR/latest.md"
 GENERATED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
-ZH_BASENAME="$(basename "$ZH_TARGET")"
-EN_BASENAME="$(basename "$EN_TARGET")"
+ZH_RELATIVE="${ZH_TARGET#$ICLOUD_DIR/}"
+EN_RELATIVE="${EN_TARGET#$ICLOUD_DIR/}"
 
-write_latest_index "$LATEST_INDEX"
+if [[ "$UPDATE_LATEST" == "1" ]]; then
+  write_latest_index "$LATEST_INDEX"
+  LATEST_STATUS="$LATEST_INDEX"
+else
+  LATEST_STATUS="skipped (set HORIZON_UPDATE_LATEST=1 to update)"
+fi
 
 echo "Copied Chinese file: $ZH_TARGET"
 echo "Copied English file: $EN_TARGET"
-echo "Copied posts dir: $POSTS_DIR"
-echo "Latest index path: $LATEST_INDEX"
+echo "Copied posts dir: $COPIED_POSTS"
+echo "Latest index path: $LATEST_STATUS"
 echo "Final output count: ${FINAL_OUTPUT_COUNT:-unknown}"
 echo "Enrichment counts: full=${FULL_ENRICHMENT_COUNT:-unknown}, brief=${BRIEF_ENRICHMENT_COUNT:-unknown}, skipped=${SKIPPED_ENRICHMENT_COUNT:-unknown}"
 echo "iCloud export completed"

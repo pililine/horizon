@@ -12,15 +12,40 @@ Default output directory:
 
 Each day can have two main Chinese reports:
 
-- `YYYY-MM-DD-morning-zh.md`
-- `YYYY-MM-DD-evening-zh.md`
+- `daily/YYYY-MM-DD/YYYY-MM-DD-HHMM-morning-zh.md`
+- `daily/YYYY-MM-DD/YYYY-MM-DD-HHMM-evening-zh.md`
 
 English reports are exported too:
 
-- `YYYY-MM-DD-morning-en.md`
-- `YYYY-MM-DD-evening-en.md`
+- `daily/YYYY-MM-DD/YYYY-MM-DD-HHMM-morning-en.md`
+- `daily/YYYY-MM-DD/YYYY-MM-DD-HHMM-evening-en.md`
 
-The script also updates `latest.md` and copies GitHub Pages post files into `posts/`.
+If the exact `YYYY-MM-DD-HHMM-slot-lang.md` file already exists, the script
+does not overwrite it. It falls back to a unique seconds-level filename such as
+`YYYY-MM-DD-HHMMSS-evening-zh.md`, then adds a numeric suffix if needed.
+
+`latest.md` is not updated by default because launchd may be allowed to create
+new iCloud files but denied when replacing existing files. Enable it only for a
+manual run when you know the current process has iCloud replacement permission:
+
+```bash
+HORIZON_UPDATE_LATEST=1 ./scripts/run-and-export-icloud.sh 12 evening
+```
+
+GitHub Pages post files are not copied by default. To export them too, set:
+
+```bash
+HORIZON_EXPORT_POSTS=1 ./scripts/run-and-export-icloud.sh 12 evening
+```
+
+Posts are written append-only under:
+
+```text
+posts/YYYY-MM-DD/
+```
+
+Older root-level files are not migrated automatically. You can move or archive
+them manually in Finder after confirming the new `daily/YYYY-MM-DD/` layout.
 
 The launchd environment is smaller than an interactive terminal environment.
 The export script therefore loads the project `.env` automatically, checks the
@@ -29,10 +54,10 @@ available, and refuses to copy Markdown files whose modification time is older
 than the current run. This prevents a failed scheduled run from re-exporting
 stale reports.
 
-The script also checks that the iCloud output directories are writable before
-starting Horizon, and exports files through a temporary file plus atomic rename.
-If macOS blocks launchd from writing to iCloud Drive, the script fails before
-spending local LLM time.
+The script also checks that the iCloud output directories can accept new files
+before starting Horizon. The preflight is append-only: it creates a unique test
+file and warns if cleanup fails, but it does not test replacement of existing
+files because iCloud may deny that operation under launchd.
 
 If copying a report or writing `latest.md` fails with `Operation not permitted`,
 the export exits non-zero and does not print `iCloud export completed`. Check
@@ -78,6 +103,18 @@ Use a custom iCloud/output directory:
 
 ```bash
 HORIZON_ICLOUD_DIR="/path/to/dir" ./scripts/run-and-export-icloud.sh 12 morning
+```
+
+Manually update `latest.md` for a one-off run:
+
+```bash
+HORIZON_UPDATE_LATEST=1 ./scripts/run-and-export-icloud.sh 12 evening
+```
+
+Export GitHub Pages post files as well:
+
+```bash
+HORIZON_EXPORT_POSTS=1 ./scripts/run-and-export-icloud.sh 12 evening
 ```
 
 The default model remains `qwen2.5:14b` with `enrichment_mode=tiered` and `enable_thinking=false`.
@@ -140,4 +177,6 @@ Notes:
 - The template is not installed automatically.
 - Email and webhook delivery are not needed.
 - iCloud Drive syncs the exported Markdown files.
-- Re-running the same date and slot overwrites that slot's files, but historical dates are not deleted.
+- Scheduled runs use append-only filenames under `daily/YYYY-MM-DD/`.
+- Re-running the same date and slot creates another uniquely named file instead of overwriting existing files.
+- `latest.md` and `posts/` export are opt-in through `HORIZON_UPDATE_LATEST=1` and `HORIZON_EXPORT_POSTS=1`.
