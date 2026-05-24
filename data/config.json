@@ -125,6 +125,39 @@
         "priority": 9
       },
       {
+        "name": "GitHub Changelog",
+        "url": "https://github.blog/changelog/feed/",
+        "enabled": true,
+        "category": "developer-tools",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["developer-tools", "github", "open-source"],
+        "priority": 9,
+        "notes": "Focused product and platform changes for developers"
+      },
+      {
+        "name": "Latent Space",
+        "url": "https://www.latent.space/feed",
+        "enabled": true,
+        "category": "ai-analysis",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-infra", "frontier-models", "developer"],
+        "priority": 9,
+        "notes": "High-signal AI ecosystem analysis and AI infra coverage"
+      },
+      {
+        "name": "Import AI",
+        "url": "https://jack-clark.net/feed/",
+        "enabled": true,
+        "category": "ai-research",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-research", "policy", "frontier-models"],
+        "priority": 9,
+        "notes": "Curated AI research and policy newsletter by Jack Clark"
+      },
+      {
         "name": "GitHub Trending - Daily",
         "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
         "enabled": true,
