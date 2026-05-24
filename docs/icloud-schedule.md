@@ -34,6 +34,11 @@ starting Horizon, and exports files through a temporary file plus atomic rename.
 If macOS blocks launchd from writing to iCloud Drive, the script fails before
 spending local LLM time.
 
+If copying a report or writing `latest.md` fails with `Operation not permitted`,
+the export exits non-zero and does not print `iCloud export completed`. Check
+macOS Privacy & Security settings, especially Full Disk Access / iCloud Drive
+access for Terminal, iTerm, or the process used by launchd.
+
 ## Manual Runs
 
 Generate a morning report:

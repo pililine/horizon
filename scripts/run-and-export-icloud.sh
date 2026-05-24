@@ -92,9 +92,22 @@ check_writable_dir() {
   local probe="$dir/.horizon-write-test-$RUN_STAMP"
   local probe_next="$probe.next"
 
-  printf 'horizon write test\n' > "$probe"
-  mv "$probe" "$probe_next"
-  rm -f "$probe_next"
+  if ! printf 'horizon write test\n' > "$probe"; then
+    echo "ERROR: Failed to write permission test file in $dir" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
+  if ! mv "$probe" "$probe_next"; then
+    rm -f "$probe" "$probe_next"
+    echo "ERROR: Failed to rename permission test file in $dir" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
+  if ! rm -f "$probe_next"; then
+    echo "ERROR: Failed to remove permission test file in $dir" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
   echo "$label is writable"
 }
 
@@ -109,8 +122,57 @@ copy_atomic() {
   target_base="$(basename "$target")"
   tmp="$target_dir/.${target_base}.tmp-$RUN_STAMP"
 
-  cp "$source" "$tmp"
-  mv -f "$tmp" "$target"
+  if ! cp "$source" "$tmp"; then
+    rm -f "$tmp"
+    echo "ERROR: Failed to copy $source to temporary export file $tmp" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
+  if ! mv -f "$tmp" "$target"; then
+    rm -f "$tmp"
+    echo "ERROR: Failed to move temporary export file to $target" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
+}
+
+write_latest_index() {
+  local target="$1"
+  local tmp="$target.tmp.$$"
+
+  if ! {
+    echo "# Horizon Daily Latest"
+    echo
+    echo "- Last generated at: $GENERATED_AT"
+    echo "- Slot: $SLOT"
+    echo "- Hours: $HOURS"
+    echo "- Chinese: ./$ZH_BASENAME"
+    echo "- English: ./$EN_BASENAME"
+    echo "- Source run log: $RUN_LOG"
+    echo
+    echo "## Recent Files"
+    if ls "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md >/dev/null 2>&1; then
+      ls -t "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md 2>/dev/null \
+        | head -n 10 \
+        | while IFS= read -r recent_file; do
+            echo "- ./$(basename "$recent_file")"
+          done
+    else
+      echo "- No exported reports yet"
+    fi
+  } > "$tmp"; then
+    rm -f "$tmp"
+    echo "ERROR: Failed to write latest index to $target" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
+
+  if ! mv -f "$tmp" "$target"; then
+    rm -f "$tmp"
+    echo "ERROR: Failed to write latest index to $target" >&2
+    echo "Please check macOS iCloud permissions / Full Disk Access." >&2
+    exit 1
+  fi
 }
 
 load_env_file "$PROJECT_DIR/.env"
@@ -196,27 +258,7 @@ GENERATED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 ZH_BASENAME="$(basename "$ZH_TARGET")"
 EN_BASENAME="$(basename "$EN_TARGET")"
 
-{
-  echo "# Horizon Daily Latest"
-  echo
-  echo "- Last generated at: $GENERATED_AT"
-  echo "- Slot: $SLOT"
-  echo "- Hours: $HOURS"
-  echo "- Chinese: ./$ZH_BASENAME"
-  echo "- English: ./$EN_BASENAME"
-  echo "- Source run log: $RUN_LOG"
-  echo
-  echo "## Recent Files"
-  if ls "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md >/dev/null 2>&1; then
-    ls -t "$ICLOUD_DIR"/*-zh.md "$ICLOUD_DIR"/*-en.md 2>/dev/null \
-      | head -n 10 \
-      | while IFS= read -r recent_file; do
-          echo "- ./$(basename "$recent_file")"
-        done
-  else
-    echo "- No exported reports yet"
-  fi
-} > "$LATEST_INDEX"
+write_latest_index "$LATEST_INDEX"
 
 echo "Copied Chinese file: $ZH_TARGET"
 echo "Copied English file: $EN_TARGET"
