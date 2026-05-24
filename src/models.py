@@ -77,7 +77,25 @@ class AIConfig(BaseModel):
     api_version: Optional[str] = None
 
 
-class GitHubSourceConfig(BaseModel):
+class SourceProfileConfig(BaseModel):
+    """Optional quality profile shared by source configurations."""
+
+    source_quality: Literal["high", "medium", "low"] = "medium"
+    source_weight: float = 0.0
+    topics: List[str] = Field(default_factory=list)
+    priority: int = 0
+    max_items: Optional[int] = None
+    notes: Optional[str] = None
+
+    @field_validator("source_weight")
+    @classmethod
+    def validate_source_weight(cls, v: float) -> float:
+        if v < -1.0 or v > 1.0:
+            raise ValueError("source_weight must be between -1.0 and 1.0")
+        return v
+
+
+class GitHubSourceConfig(SourceProfileConfig):
     """GitHub source configuration."""
 
     type: str  # "user_events", "repo_releases", etc.
@@ -87,7 +105,7 @@ class GitHubSourceConfig(BaseModel):
     enabled: bool = True
 
 
-class HackerNewsConfig(BaseModel):
+class HackerNewsConfig(SourceProfileConfig):
     """Hacker News configuration."""
 
     enabled: bool = True
@@ -95,7 +113,7 @@ class HackerNewsConfig(BaseModel):
     min_score: int = 100
 
 
-class RSSSourceConfig(BaseModel):
+class RSSSourceConfig(SourceProfileConfig):
     """RSS feed source configuration."""
 
     name: str
@@ -104,7 +122,7 @@ class RSSSourceConfig(BaseModel):
     category: Optional[str] = None
 
 
-class RedditSubredditConfig(BaseModel):
+class RedditSubredditConfig(SourceProfileConfig):
     """Configuration for monitoring a specific subreddit."""
 
     subreddit: str
@@ -117,7 +135,7 @@ class RedditSubredditConfig(BaseModel):
     min_score: int = 10
 
 
-class RedditUserConfig(BaseModel):
+class RedditUserConfig(SourceProfileConfig):
     """Configuration for monitoring a specific Reddit user."""
 
     username: str  # without u/ prefix
@@ -135,7 +153,7 @@ class RedditConfig(BaseModel):
     fetch_comments: int = 5  # top comments per post, 0 to disable
 
 
-class TelegramChannelConfig(BaseModel):
+class TelegramChannelConfig(SourceProfileConfig):
     """Configuration for monitoring a specific Telegram channel."""
 
     channel: str  # channel username, e.g. "zaihuapd"
@@ -164,7 +182,7 @@ class TwitterConfig(BaseModel):
     reply_min_likes: int = 0
 
 
-class OpenBBWatchlist(BaseModel):
+class OpenBBWatchlist(SourceProfileConfig):
     """A named watchlist of tickers fetched from one OpenBB provider.
 
     Each watchlist produces one news.company() call per run, so group

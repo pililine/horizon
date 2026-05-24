@@ -16,6 +16,7 @@ from src.models import (
     Config,
     ContentItem,
     FilteringConfig,
+    RSSSourceConfig,
     SourcesConfig,
     SourceType,
 )
@@ -146,6 +147,51 @@ def test_select_twenty_candidates_eighteen_high_outputs_top_fifteen():
     assert all(o.ai_score == 8.0 for o in out)
 
 
+def test_high_quality_source_can_rank_above_medium_with_slightly_lower_score():
+    high = _item(1, 6.8)
+    high.metadata["source_quality"] = "high"
+    high.metadata["source_weight"] = 0.5
+    medium = _item(2, 6.5)
+    medium.metadata["source_quality"] = "medium"
+
+    out, high_count = HorizonOrchestrator._select_output_items(
+        [medium, high], threshold=6.0, min_items=1, max_items=2
+    )
+
+    assert out == [high, medium]
+    assert high_count == 2
+    assert high.ai_score == 6.8
+    assert high.metadata["ranking_score"] == 7.3
+
+
+def test_low_quality_source_with_same_score_ranks_below_high_quality_source():
+    high = _item(1, 7.0)
+    high.metadata["source_quality"] = "high"
+    high.metadata["source_weight"] = 0.5
+    low = _item(2, 7.0)
+    low.metadata["source_quality"] = "low"
+    low.metadata["source_weight"] = -0.5
+
+    out, high_count = HorizonOrchestrator._select_output_items(
+        [low, high], threshold=7.0, min_items=1, max_items=2
+    )
+
+    assert out == [high, low]
+    assert high_count == 2
+    assert high.ai_score == low.ai_score == 7.0
+    assert high.metadata["ranking_score"] == 7.5
+    assert low.metadata["ranking_score"] == 6.5
+
+
+def test_source_profile_defaults_to_medium_and_zero_weight():
+    source = RSSSourceConfig(name="Example", url="https://example.com/feed.xml")
+    item = _item(1, 7.0)
+
+    assert source.source_quality == "medium"
+    assert source.source_weight == 0.0
+    assert HorizonOrchestrator._source_profile(item) == ("medium", 0.0)
+
+
 # --- Scenario 6: semantic dedup happens before final selection -------------
 
 
@@ -212,6 +258,21 @@ def test_candidate_pool_is_bounded_before_dedup():
 
     asyncio.run(orch._curate_output_items(items))
     assert seen["pool_size"] == 25
+
+
+def test_source_contribution_logs_quality_summary(capsys):
+    orch = _make_orchestrator()
+    high = _item(1, 8.0)
+    high.metadata["source_quality"] = "high"
+    high.metadata["source_weight"] = 0.5
+    medium = _item(2, 6.0)
+
+    orch._log_source_contribution([high, medium])
+    captured = capsys.readouterr().out
+
+    assert "Source contribution by source_quality" in captured
+    assert "high: 1 items, avg score 8.0" in captured
+    assert "medium: 1 items, avg score 6.0" in captured
 
 
 # --- Scenarios 7 & 8: enrichment scope + non-empty zh/en reports -----------

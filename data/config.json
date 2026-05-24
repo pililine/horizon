@@ -25,68 +25,115 @@
       {
         "type": "user_events",
         "username": "karpathy",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai", "developer-tools"],
+        "priority": 10,
+        "notes": "High-signal AI/developer account"
       },
       {
         "type": "repo_releases",
         "owner": "vllm-project",
         "repo": "vllm",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-infra", "llm-serving"],
+        "priority": 10
       },
       {
         "type": "repo_releases",
         "owner": "sgl-project",
         "repo": "sglang",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-infra", "llm-serving"],
+        "priority": 10
       },
       {
         "type": "repo_releases",
         "owner": "triton-lang",
         "repo": "triton",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-infra", "compilers"],
+        "priority": 10
       }
     ],
     "hackernews": {
       "enabled": true,
       "fetch_top_stories": 30,
-      "min_score": 150
+      "min_score": 150,
+      "source_quality": "high",
+      "source_weight": 0.5,
+      "topics": ["developer", "technology", "ai"],
+      "priority": 8,
+      "notes": "High-signal community discussion; broad topics may still need AI scoring"
     },
     "rss": [
       {
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "ai-tools",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-tools", "developer"],
+        "priority": 10
       },
       {
         "name": "OpenAI News",
         "url": "https://openai.com/news/rss.xml",
         "enabled": true,
-        "category": "ai-lab"
+        "category": "ai-lab",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["frontier-models", "ai-products"],
+        "priority": 10
       },
       {
         "name": "Google DeepMind Blog",
         "url": "https://deepmind.google/blog/rss.xml",
         "enabled": true,
-        "category": "ai-research"
+        "category": "ai-research",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-research", "frontier-models"],
+        "priority": 10
       },
       {
         "name": "Hugging Face Blog",
         "url": "https://huggingface.co/blog/feed.xml",
         "enabled": true,
-        "category": "ai-open-source"
+        "category": "ai-open-source",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["open-source-ai", "developer-tools"],
+        "priority": 10
       },
       {
         "name": "GitHub Blog",
         "url": "https://github.blog/feed/",
         "enabled": true,
-        "category": "developer-tools"
+        "category": "developer-tools",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["developer-tools", "open-source"],
+        "priority": 9
       },
       {
         "name": "GitHub Trending - Daily",
         "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
         "enabled": true,
-        "category": "github-trending"
+        "category": "github-trending",
+        "source_quality": "medium",
+        "source_weight": 0.0,
+        "topics": ["open-source", "developer-tools"],
+        "priority": 5,
+        "notes": "Useful discovery source, but broad and trend-driven"
       },
       {
         "name": "LWN.net",
@@ -104,7 +151,11 @@
           "sort": "hot",
           "time_filter": "day",
           "fetch_limit": 15,
-          "min_score": 60
+          "min_score": 60,
+          "source_quality": "medium",
+          "source_weight": 0.0,
+          "topics": ["machine-learning", "research"],
+          "priority": 4
         },
         {
           "subreddit": "LocalLLaMA",
@@ -112,7 +163,11 @@
           "sort": "hot",
           "time_filter": "day",
           "fetch_limit": 15,
-          "min_score": 60
+          "min_score": 60,
+          "source_quality": "medium",
+          "source_weight": 0.0,
+          "topics": ["local-llm", "open-source-ai"],
+          "priority": 4
         }
       ],
       "users": [],
@@ -124,7 +179,12 @@
         {
           "channel": "zaihuapd",
           "enabled": true,
-          "fetch_limit": 20
+          "fetch_limit": 20,
+          "source_quality": "medium",
+          "source_weight": 0.0,
+          "topics": ["ai", "technology", "business"],
+          "priority": 5,
+          "notes": "Fast broad news source; AI score should remain the main filter"
         }
       ]
     }

@@ -32,50 +32,82 @@
       {
         "type": "user_events",
         "username": "torvalds",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["open-source", "developer"],
+        "priority": 8
       },
       {
         "type": "repo_releases",
         "owner": "astral-sh",
         "repo": "uv",
-        "enabled": true
+        "enabled": true,
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["developer-tools", "python"],
+        "priority": 8
       }
     ],
     "hackernews": {
       "enabled": true,
       "fetch_top_stories": 20,
-      "min_score": 100
+      "min_score": 100,
+      "source_quality": "high",
+      "source_weight": 0.5,
+      "topics": ["developer", "technology", "ai"],
+      "priority": 8
     },
     "rss": [
       {
         "name": "Simon Willison",
         "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "ai-tools"
+        "category": "ai-tools",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-tools", "developer"],
+        "priority": 10
       },
       {
         "name": "OpenAI News",
         "url": "https://openai.com/news/rss.xml",
         "enabled": true,
-        "category": "ai-lab"
+        "category": "ai-lab",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["frontier-models", "ai-products"],
+        "priority": 10
       },
       {
         "name": "Google DeepMind Blog",
         "url": "https://deepmind.google/blog/rss.xml",
         "enabled": true,
-        "category": "ai-research"
+        "category": "ai-research",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["ai-research", "frontier-models"],
+        "priority": 10
       },
       {
         "name": "Hugging Face Blog",
         "url": "https://huggingface.co/blog/feed.xml",
         "enabled": true,
-        "category": "ai-open-source"
+        "category": "ai-open-source",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["open-source-ai", "developer-tools"],
+        "priority": 10
       },
       {
         "name": "GitHub Blog",
         "url": "https://github.blog/feed/",
         "enabled": true,
-        "category": "developer-tools"
+        "category": "developer-tools",
+        "source_quality": "high",
+        "source_weight": 0.5,
+        "topics": ["developer-tools", "open-source"],
+        "priority": 9
       },
       {
         "name": "LWN.net (subscriber full-text)",
@@ -93,7 +125,11 @@
           "sort": "hot",
           "time_filter": "day",
           "fetch_limit": 15,
-          "min_score": 50
+          "min_score": 50,
+          "source_quality": "medium",
+          "source_weight": 0.0,
+          "topics": ["machine-learning", "research"],
+          "priority": 4
         }
       ],
       "users": [
@@ -101,7 +137,11 @@
           "username": "iamthatis",
           "enabled": true,
           "sort": "new",
-          "fetch_limit": 10
+          "fetch_limit": 10,
+          "source_quality": "medium",
+          "source_weight": 0.0,
+          "topics": ["open-source", "developer-tools"],
+          "priority": 4
         }
       ],
       "fetch_comments": 5

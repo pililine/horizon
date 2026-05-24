@@ -138,5 +138,10 @@ class HackerNewsScraper(BaseScraper):
                 "type": story.get("type", "story"),
                 "discussion_url": hn_discussion_url,
                 "comment_count": len(comments),
+                "source_quality": self.config.get("source_quality", "medium"),
+                "source_weight": self.config.get("source_weight", 0.0),
+                "topics": self.config.get("topics", []),
+                "source_priority": self.config.get("priority", 0),
+                "source_notes": self.config.get("notes"),
             }
         )

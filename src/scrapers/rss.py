@@ -107,6 +107,11 @@ class RSSScraper(BaseScraper):
                         "feed_name": source.name,
                         "category": source.category,
                         "tags": [tag.term for tag in entry.get("tags", [])],
+                        "source_quality": source.source_quality,
+                        "source_weight": source.source_weight,
+                        "topics": source.topics,
+                        "source_priority": source.priority,
+                        "source_notes": source.notes,
                     },
                 )
                 items.append(item)

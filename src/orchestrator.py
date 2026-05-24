@@ -27,6 +27,13 @@ from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
 
 
+DEFAULT_SOURCE_WEIGHTS = {
+    "high": 0.5,
+    "medium": 0.0,
+    "low": -0.5,
+}
+
+
 class HorizonOrchestrator:
     """Orchestrates the complete workflow for content aggregation and analysis."""
 
@@ -106,10 +113,13 @@ class HorizonOrchestrator:
                 for source_key, count in sorted(selected_counts.items()):
                     self.console.print(f"      • {source_key}: {count}")
                 self.console.print("")
+                self._log_source_contribution(important_items)
 
             # 6.2 Enrich ONLY the final output items (2nd AI pass). Keeping this
             # after selection avoids spending local inference on dropped items.
             await self._enrich_important_items(important_items)
+            if important_items:
+                self._log_enrichment_by_source_quality(important_items)
 
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -378,6 +388,7 @@ class HorizonOrchestrator:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
 
             primary.metadata["merged_sources"] = list(all_sources)
+            self._apply_source_profile(primary)
             merged.append(primary)
 
         return merged
@@ -388,8 +399,8 @@ class HorizonOrchestrator:
         This is a stable stage helper for integrations such as MCP.
 
         Sends all item titles, tags, and summaries to AI in a single call.
-        Items must already be sorted by ai_score descending so that the first
-        item in each duplicate group is always the highest-scored one.
+        Items must already be sorted by ranking_score descending so that the first
+        item in each duplicate group is always the highest-ranked one.
         Content (comments) from duplicate items is merged into the primary.
 
         Falls back to returning items unchanged if the AI call fails.
@@ -625,6 +636,113 @@ class HorizonOrchestrator:
         return await analyzer.analyze_batch(items)
 
     @staticmethod
+    def _source_profile(item: ContentItem) -> tuple[str, float]:
+        quality = item.metadata.get("source_quality") or "medium"
+        if quality not in DEFAULT_SOURCE_WEIGHTS:
+            quality = "medium"
+        raw_weight = item.metadata.get("source_weight")
+        if raw_weight is None:
+            weight = DEFAULT_SOURCE_WEIGHTS[quality]
+        else:
+            try:
+                weight = float(raw_weight)
+            except (TypeError, ValueError):
+                weight = DEFAULT_SOURCE_WEIGHTS[quality]
+        weight = max(-1.0, min(1.0, weight))
+        return quality, weight
+
+    @classmethod
+    def _apply_source_profile(cls, item: ContentItem) -> None:
+        quality, weight = cls._source_profile(item)
+        item.metadata["source_quality"] = quality
+        item.metadata["source_weight"] = weight
+        item.metadata["ranking_score"] = cls._ranking_score(item)
+
+    @classmethod
+    def _ranking_score(cls, item: ContentItem) -> float:
+        _, weight = cls._source_profile(item)
+        return float(item.ai_score or 0.0) + weight
+
+    @classmethod
+    def _rank_items(cls, items: List[ContentItem]) -> List[ContentItem]:
+        for item in items:
+            cls._apply_source_profile(item)
+        return sorted(
+            items,
+            key=lambda item: (
+                cls._ranking_score(item),
+                item.ai_score or 0.0,
+                item.metadata.get("source_priority", 0) or 0,
+            ),
+            reverse=True,
+        )
+
+    def _log_ranking_details(self, items: List[ContentItem]) -> None:
+        if not items:
+            return
+        self.console.print("📈 Ranking details:")
+        for item in items:
+            quality, weight = self._source_profile(item)
+            self.console.print(
+                f"      • {item.source_type.value}/{self._sub_source_label(item)}: "
+                f"ai_score={item.ai_score or 0:.1f}, "
+                f"source_quality={quality}, source_weight={weight:+.1f}, "
+                f"ranking_score={self._ranking_score(item):.1f}"
+            )
+        self.console.print("")
+
+    def _log_source_contribution(self, items: List[ContentItem]) -> None:
+        by_source: Dict[str, Dict[str, float]] = defaultdict(lambda: {"count": 0, "score": 0.0})
+        by_quality: Dict[str, Dict[str, float]] = defaultdict(lambda: {"count": 0, "score": 0.0})
+        for item in items:
+            self._apply_source_profile(item)
+            score = float(item.ai_score or 0.0)
+            source_key = f"{item.source_type.value}/{self._sub_source_label(item)}"
+            quality = item.metadata.get("source_quality", "medium")
+            by_source[source_key]["count"] += 1
+            by_source[source_key]["score"] += score
+            by_quality[quality]["count"] += 1
+            by_quality[quality]["score"] += score
+
+        self.console.print("📊 Source contribution by source:")
+        for source_key, data in sorted(by_source.items()):
+            avg = data["score"] / data["count"] if data["count"] else 0
+            self.console.print(
+                f"      • {source_key}: {int(data['count'])} items, avg score {avg:.1f}"
+            )
+        self.console.print("📊 Source contribution by source_quality:")
+        for quality in ["high", "medium", "low"]:
+            data = by_quality.get(quality, {"count": 0, "score": 0.0})
+            avg = data["score"] / data["count"] if data["count"] else 0
+            self.console.print(
+                f"      • {quality}: {int(data['count'])} items, avg score {avg:.1f}"
+            )
+        self.console.print("")
+
+    def _log_enrichment_by_source_quality(self, items: List[ContentItem]) -> None:
+        counts: Dict[str, Dict[str, int]] = defaultdict(
+            lambda: {"full": 0, "brief": 0, "skipped": 0}
+        )
+        for item in items:
+            quality, _ = self._source_profile(item)
+            mode = item.metadata.get("enrichment_mode") or "none"
+            if mode == "full":
+                counts[quality]["full"] += 1
+            elif mode == "brief":
+                counts[quality]["brief"] += 1
+            else:
+                counts[quality]["skipped"] += 1
+
+        self.console.print("📊 Enrichment by source_quality:")
+        for quality in ["high", "medium", "low"]:
+            data = counts.get(quality, {"full": 0, "brief": 0, "skipped": 0})
+            self.console.print(
+                f"      • {quality}: full={data['full']}, "
+                f"brief={data['brief']}, skipped={data['skipped']}"
+            )
+        self.console.print("")
+
+    @staticmethod
     def _select_output_items(
         candidates: List[ContentItem],
         *,
@@ -644,7 +762,7 @@ class HorizonOrchestrator:
         to `max_items` when many items score high, and emit every candidate when
         fewer than `min_items` are available. Returns (output_items, high_score_count).
         """
-        ranked = sorted(candidates, key=lambda x: x.ai_score or 0, reverse=True)
+        ranked = HorizonOrchestrator._rank_items(candidates)
         high_score_count = sum(
             1 for it in ranked if it.ai_score is not None and it.ai_score >= threshold
         )
@@ -688,7 +806,7 @@ class HorizonOrchestrator:
 
         # 5. Rank by score, then take a bounded pool for semantic dedup so we
         # never send an unbounded prompt to a slow local model.
-        ranked_items = sorted(scored_items, key=lambda x: x.ai_score or 0, reverse=True)
+        ranked_items = self._rank_items(scored_items)
         candidate_pool = ranked_items[:candidate_limit]
         self.console.print(
             f"🎯 Semantic-dedup candidate pool: {len(candidate_pool)} "
@@ -718,6 +836,7 @@ class HorizonOrchestrator:
             f"(high-score {high_score_count}, candidates {len(deduped_items)}, "
             f"min {min_items}/max {max_items})\n"
         )
+        self._log_ranking_details(output_items)
         if insufficient:
             self.console.print(
                 "[yellow]⚠️  Fewer candidates than the minimum output size; "

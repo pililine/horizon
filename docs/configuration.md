@@ -231,6 +231,32 @@ For OpenAI-compatible gateways, Horizon sends `temperature` by default. If a new
 
 All sources are configured under the top-level `sources` key in `config.json`.
 
+### Source Quality Profiles
+
+Most source entries can include an optional quality profile:
+
+```json
+{
+  "source_quality": "high",
+  "source_weight": 0.5,
+  "topics": ["ai", "developer-tools"],
+  "priority": 10,
+  "notes": "Official or consistently high-signal source"
+}
+```
+
+- `source_quality`: `high`, `medium`, or `low`. Defaults to `medium`.
+- `source_weight`: small ranking adjustment added to the AI score. Defaults to `0.0` and must stay between `-1.0` and `1.0`.
+- `topics`: lightweight source tags for future analysis and reporting.
+- `priority`: optional tie-breaker metadata.
+- `max_items`: reserved for source-level limiting.
+- `notes`: human-readable explanation for the profile.
+
+Horizon computes `ranking_score = ai_score + source_weight` for final ordering,
+but reports still display the original AI score. Keep weights small: AI score is
+the content quality signal, while source weight is only a transparent priority
+hint.
+
 ### GitHub
 
 ```json
@@ -273,13 +299,16 @@ All sources are configured under the top-level `sources` key in `config.json`.
 {
   "sources": {
     "rss": [
-      {
-        "name": "Blog Name",
-        "url": "https://example.com/feed.xml",
-        "enabled": true,
-        "category": "ai-ml"
-      }
-    ]
+        {
+          "name": "Blog Name",
+          "url": "https://example.com/feed.xml",
+          "enabled": true,
+          "category": "ai-ml",
+          "source_quality": "high",
+          "source_weight": 0.5,
+          "topics": ["ai-research"]
+        }
+      ]
   }
 }
 ```
@@ -459,7 +488,7 @@ Content is scored 0-10:
 }
 ```
 
-- `ai_score_threshold`: Only include content scoring >= this value
+- `ai_score_threshold`: Count high-scoring items and guide output size; it is not a hard filter
 - `time_window_hours`: Fetch content from last N hours
 
 ## Environment Variable Substitution

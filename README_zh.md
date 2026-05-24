@@ -256,6 +256,8 @@ cp data/config.example.json data/config.json  # 自定义信息源
 
 `data/config.json` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
 
+来源可以配置轻量质量画像：`source_quality`（`high` / `medium` / `low`）、`source_weight`、`topics`、`priority` 和 `notes`。Horizon 会用 `ranking_score = ai_score + source_weight` 做最终排序，但日报里仍展示原始 AI 分数；建议把 `source_weight` 控制在 `-1.0` 到 `+1.0` 之间，避免来源权重盖过内容质量。
+
 #### 使用本地 LLM / Qwen 14B
 
 如果你没有 OpenAI / GPT API key，也可以使用本地 OpenAI-compatible 服务，例如 Ollama、LM Studio、vLLM 或 llama.cpp server。OpenAI Python SDK 仍然要求 `api_key` 非空，但很多本地服务不会真正校验它，因此 `.env` 里可以使用占位值：
