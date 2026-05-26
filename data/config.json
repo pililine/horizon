@@ -238,7 +238,23 @@
     "time_window_hours": 24,
     "min_items_per_report": 10,
     "max_items_per_report": 15,
-    "semantic_dedupe_candidate_limit": 25
+    "semantic_dedupe_candidate_limit": 25,
+    "enable_promo_filter": true,
+    "promo_filter_keywords": [
+      "领红包",
+      "每日可领",
+      "京东 App 搜索",
+      "优惠券",
+      "返利",
+      "立减",
+      "满减",
+      "薅羊毛",
+      "promo code",
+      "coupon",
+      "cashback",
+      "shopping deal",
+      "voucher"
+    ]
   },
   "webhook": {
     "enabled": false,

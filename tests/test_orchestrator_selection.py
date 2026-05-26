@@ -23,13 +23,20 @@ from src.models import (
 from src.orchestrator import HorizonOrchestrator
 
 
-def _item(idx: int, score: float) -> ContentItem:
+def _item(
+    idx: int,
+    score: float,
+    *,
+    title: str | None = None,
+    content: str = "content",
+    source_type: SourceType = SourceType.RSS,
+) -> ContentItem:
     it = ContentItem(
         id=f"rss:{idx}",
-        source_type=SourceType.RSS,
-        title=f"Item {idx}",
+        source_type=source_type,
+        title=title or f"Item {idx}",
         url=f"https://example.com/{idx}",
-        content="content",
+        content=content,
         author="tester",
         published_at=datetime(2026, 5, 23, 8, 0, tzinfo=timezone.utc),
     )
@@ -106,6 +113,77 @@ def test_select_zero_candidates_returns_empty():
     )
     assert out == []
     assert high == 0
+
+
+def test_promo_filter_removes_jd_red_packet_ad():
+    orch = _make_orchestrator()
+    jd = _item(
+        100,
+        0,
+        title="打开京东 App 搜索「待领红包 963」，每日可领 3 次，最高 26618 元。",
+        source_type=SourceType.TELEGRAM,
+    )
+    kept = orch._apply_promotional_prefilter([jd])
+    assert kept == []
+
+
+def test_promo_filter_removes_coupon_cashback_ad():
+    orch = _make_orchestrator()
+    ad = _item(
+        101,
+        0,
+        title="限时优惠券返利，立即下单立减，最高 cashback 50%",
+        source_type=SourceType.TELEGRAM,
+    )
+    kept = orch._apply_promotional_prefilter([ad])
+    assert kept == []
+
+
+def test_promo_filter_removes_english_promo_referral():
+    orch = _make_orchestrator()
+    ad = _item(
+        102,
+        0,
+        title="Limited offer coupon and promo code with referral bonus",
+    )
+    kept = orch._apply_promotional_prefilter([ad])
+    assert kept == []
+
+
+def test_promo_filter_keeps_security_spam_incident_news():
+    orch = _make_orchestrator()
+    security_news = _item(
+        103,
+        0,
+        title="Scammers are abusing an internal Microsoft account to send spam links",
+        source_type=SourceType.HACKERNEWS,
+    )
+    kept = orch._apply_promotional_prefilter([security_news])
+    assert kept == [security_news]
+
+
+def test_promo_filter_keeps_telegram_backdoor_security_news():
+    orch = _make_orchestrator()
+    security_news = _item(
+        104,
+        0,
+        title="Telegram official APKPure version injected with spyware backdoor",
+        source_type=SourceType.TELEGRAM,
+    )
+    kept = orch._apply_promotional_prefilter([security_news])
+    assert kept == [security_news]
+
+
+def test_promo_filter_keeps_apple_google_ai_product_news():
+    orch = _make_orchestrator()
+    normal = _item(
+        105,
+        0,
+        title="Google Docs Live adds AI voice drafting for document workflows",
+        source_type=SourceType.TELEGRAM,
+    )
+    kept = orch._apply_promotional_prefilter([normal])
+    assert kept == [normal]
 
 
 def test_select_six_low_score_candidates_outputs_all_six():
@@ -377,6 +455,44 @@ def test_run_zero_candidates_writes_empty_reports_and_passes_no_items_to_enrichm
     assert set(storage.saved.keys()) == {"zh", "en"}
     assert "no candidates were available" in storage.saved["en"]
     assert "没有任何候选" in storage.saved["zh"]
+
+
+def test_run_prefilter_happens_before_ai_scoring(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    orch = _make_orchestrator()
+    storage = _FakeStorage()
+    orch.storage = storage
+    seen = {"curate_ids": None}
+    items = [
+        _item(
+            200,
+            0.0,
+            title="打开京东 App 搜索「待领红包 963」，每日可领 3 次，最高 26618 元。",
+            source_type=SourceType.TELEGRAM,
+        ),
+        _item(201, 8.0, title="Real AI Infra Update", source_type=SourceType.HACKERNEWS),
+    ]
+
+    async def fake_fetch(since):
+        return items
+
+    async def fake_curate(to_curate):
+        seen["curate_ids"] = [i.id for i in to_curate]
+        return (to_curate, {"insufficient": False})
+
+    async def fake_expand(to_expand):
+        return None
+
+    async def fake_enrich(to_enrich):
+        return None
+
+    orch.fetch_all_sources = fake_fetch
+    orch._curate_output_items = fake_curate
+    orch._expand_twitter_discussion = fake_expand
+    orch._enrich_important_items = fake_enrich
+
+    asyncio.run(orch.run(force_hours=12))
+    assert seen["curate_ids"] == ["rss:201"]
 
 
 # --- Enrichment modes -------------------------------------------------------

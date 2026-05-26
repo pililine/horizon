@@ -483,13 +483,31 @@ Content is scored 0-10:
 {
   "filtering": {
     "ai_score_threshold": 7.0,
-    "time_window_hours": 24
+    "time_window_hours": 24,
+    "min_items_per_report": 10,
+    "max_items_per_report": 15,
+    "semantic_dedupe_candidate_limit": 25,
+    "enable_promo_filter": true,
+    "promo_filter_keywords": [
+      "领红包",
+      "优惠券",
+      "返利",
+      "promo code",
+      "coupon",
+      "cashback"
+    ]
   }
 }
 ```
 
 - `ai_score_threshold`: Count high-scoring items and guide output size; it is not a hard filter
 - `time_window_hours`: Fetch content from last N hours
+- `min_items_per_report` / `max_items_per_report`: Output size bounds
+- `semantic_dedupe_candidate_limit`: Bound semantic dedupe input size before LLM calls
+- `enable_promo_filter`: Drop obvious shopping/promo spam before AI scoring
+- `promo_filter_keywords`: Extra local keyword list used by the promo pre-filter
+
+Promo/spam pre-filter runs before AI scoring and targets shopping-style ads (红包、优惠券、返利、promo code/coupon/cashback, etc.). It includes false-positive protection so security incident news containing words like "spam", "scam", or "phishing" is not dropped by that word alone.
 
 ## Environment Variable Substitution
 

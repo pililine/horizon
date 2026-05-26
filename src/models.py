@@ -347,6 +347,24 @@ class FilteringConfig(BaseModel):
     min_items_per_report: int = 10
     max_items_per_report: int = 15
     semantic_dedupe_candidate_limit: int = 25
+    enable_promo_filter: bool = True
+    promo_filter_keywords: List[str] = Field(
+        default_factory=lambda: [
+            "领红包",
+            "每日可领",
+            "京东 app 搜索",
+            "优惠券",
+            "返利",
+            "立减",
+            "满减",
+            "薅羊毛",
+            "promo code",
+            "coupon",
+            "cashback",
+            "shopping deal",
+            "voucher",
+        ]
+    )
 
 
 class Config(BaseModel):

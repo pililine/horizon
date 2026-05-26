@@ -3,6 +3,7 @@
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import re
 from typing import List, Dict
 from urllib.parse import urlparse
 import httpx
@@ -31,6 +32,63 @@ DEFAULT_SOURCE_WEIGHTS = {
     "high": 0.5,
     "medium": 0.0,
     "low": -0.5,
+}
+
+PROMO_KEYWORDS_CN = {
+    "领红包",
+    "红包",
+    "每日可领",
+    "京东app搜索",
+    "京东 app 搜索",
+    "淘宝",
+    "天猫",
+    "拼多多",
+    "优惠券",
+    "返利",
+    "立减",
+    "满减",
+    "折扣",
+    "秒杀",
+    "下单",
+    "购买链接",
+    "购物津贴",
+    "口令",
+    "薅羊毛",
+    "福利码",
+    "邀请码",
+}
+
+PROMO_KEYWORDS_EN = {
+    "coupon",
+    "promo code",
+    "discount",
+    "cashback",
+    "referral",
+    "affiliate",
+    "shopping deal",
+    "limited offer",
+    "red packet",
+    "voucher",
+}
+
+SECURITY_CONTEXT_HINTS = {
+    "scam",
+    "scammer",
+    "phishing",
+    "malware",
+    "spyware",
+    "backdoor",
+    "abuse",
+    "abusing",
+    "breach",
+    "vulnerability",
+    "security incident",
+    "诈骗",
+    "钓鱼",
+    "后门",
+    "恶意软件",
+    "漏洞",
+    "木马",
 }
 
 
@@ -89,11 +147,17 @@ class HorizonOrchestrator:
                     f"🔗 Rule/url dedupe: {len(all_items)} → {len(merged_items)} "
                     f"items ({removed} removed)\n"
                 )
+                filtered_items = self._apply_promotional_prefilter(merged_items)
+                removed_by_filter = len(merged_items) - len(filtered_items)
+                self.console.print(
+                    f"🚫 Promotional/spam pre-filter: {len(merged_items)} → "
+                    f"{len(filtered_items)} items ({removed_by_filter} removed)\n"
+                )
 
                 # 4-6. Score, semantically dedupe, and select the final output set.
                 # AI score is used only for ranking and to count high-scoring items;
                 # it is never a hard cutoff. See _curate_output_items for the rules.
-                important_items, curation = await self._curate_output_items(merged_items)
+                important_items, curation = await self._curate_output_items(filtered_items)
             else:
                 self.console.print(
                     "[yellow]No scraped candidates found; generating empty summaries.[/yellow]\n"
@@ -634,6 +698,92 @@ class HorizonOrchestrator:
         analyzer = ContentAnalyzer(ai_client)
 
         return await analyzer.analyze_batch(items)
+
+    @staticmethod
+    def _flatten_text_for_filter(item: ContentItem) -> str:
+        parts = [item.title or "", item.content or ""]
+        for value in item.metadata.values():
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                parts.extend(str(v) for v in value if isinstance(v, str))
+        return " ".join(parts).strip()
+
+    @classmethod
+    def _looks_like_promotional_or_spam(cls, item: ContentItem, keywords: List[str]) -> bool:
+        text = cls._flatten_text_for_filter(item)
+        if not text:
+            return False
+        text_lower = text.lower()
+
+        contains_security_context = any(h in text_lower for h in SECURITY_CONTEXT_HINTS)
+
+        normalized = text_lower.replace(" ", "")
+        keyword_hit = (
+            any(k in text for k in PROMO_KEYWORDS_CN)
+            or any(k in text_lower for k in PROMO_KEYWORDS_EN)
+            or any(k.lower().replace(" ", "") in normalized for k in keywords)
+        )
+
+        strong_ecommerce_pattern = bool(
+            re.search(
+                r"(京东|淘宝|天猫|拼多多).{0,16}(搜索|app|红包|优惠券|返利|立减|满减|口令)",
+                text,
+                re.IGNORECASE,
+            )
+        )
+        amount_and_claim_pattern = bool(
+            re.search(
+                r"(每日可领|最高\s*\d+\s*元|\d+\s*元.*(红包|优惠券|返利))",
+                text,
+                re.IGNORECASE,
+            )
+        )
+        english_promo_pattern = bool(
+            re.search(
+                r"(promo code|coupon|cashback|shopping deal|limited offer|voucher|referral code|affiliate)",
+                text_lower,
+            )
+        )
+
+        has_promo_tags = any(
+            tag in text_lower for tag in ("#promotional", "#spam", "#shopping", "promotional")
+        )
+
+        if contains_security_context and not (
+            strong_ecommerce_pattern or amount_and_claim_pattern or english_promo_pattern
+        ):
+            return False
+
+        if strong_ecommerce_pattern or amount_and_claim_pattern:
+            return True
+
+        if item.source_type.value == "telegram" and (keyword_hit and (english_promo_pattern or has_promo_tags)):
+            return True
+
+        return keyword_hit and (english_promo_pattern or has_promo_tags)
+
+    def _apply_promotional_prefilter(self, items: List[ContentItem]) -> List[ContentItem]:
+        filtering = self.config.filtering
+        if not getattr(filtering, "enable_promo_filter", True):
+            return items
+
+        keywords = getattr(filtering, "promo_filter_keywords", [])
+        kept: List[ContentItem] = []
+        removed_titles: List[str] = []
+        for item in items:
+            if self._looks_like_promotional_or_spam(item, keywords):
+                removed_titles.append(item.title)
+                continue
+            kept.append(item)
+
+        for title in removed_titles[:5]:
+            self.console.print(f"   [dim]promo-filter removed: {title}[/dim]")
+        if len(removed_titles) > 5:
+            self.console.print(
+                f"   [dim]promo-filter removed {len(removed_titles) - 5} more items[/dim]"
+            )
+        return kept
 
     @staticmethod
     def _source_profile(item: ContentItem) -> tuple[str, float]:
